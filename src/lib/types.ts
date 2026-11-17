@@ -1,6 +1,6 @@
 export type ThemeMode = 'dark' | 'light';
 
-export type AppView = 'home' | 'new' | 'graph' | 'api';
+export type AppView = 'home' | 'new' | 'graph' | 'api' | 'assistant';
 
 export type Mastery = 0 | 1 | 2;
 

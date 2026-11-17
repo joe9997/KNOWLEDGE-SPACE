@@ -10,10 +10,10 @@ import {
   Info,
   Loader2,
   PlugZap,
+  Save,
   Server,
   Trash2,
 } from 'lucide-react';
-import { LiquidButton } from '../components/ui/LiquidButton';
 import { testConnection, validateApiConfig } from '../lib/llm';
 import { testServerConnection } from '../lib/serverAi';
 import type { ApiConfig } from '../lib/types';
@@ -444,9 +444,10 @@ export function ApiConfigPage() {
               {testing ? <Loader2 size={15} className="spinner" /> : <PlugZap size={15} />}
               {testing ? '正在测试连接…' : '测试连接'}
             </button>
-            <LiquidButton width={148} height={46} onClick={saveConfig} ariaLabel="保存配置">
+            <button type="submit" className="glass-button">
+              <Save size={15} />
               保存配置
-            </LiquidButton>
+            </button>
             <span className="form-actions__spacer" />
             {apiConfig && (
               <button

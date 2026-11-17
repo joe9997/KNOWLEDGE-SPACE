@@ -27,6 +27,7 @@ import type {
   ReviewGrade,
 } from '../lib/types';
 import { validateApiConfig } from '../lib/llm';
+import { fetchSnapshot, pushSnapshot } from '../lib/persistence';
 import { getServerAiStatus } from '../lib/serverAi';
 import type { ServerAiStatus } from '../lib/serverAi';
 
@@ -51,6 +52,8 @@ interface AppContextValue {
   setOffsetDays: (days: number) => void;
   setActiveDocId: (id: string) => void;
   createDoc: (input: CreateDocInput) => string;
+  renameDoc: (id: string, title: string) => void;
+  deleteDoc: (id: string) => void;
   reviewNode: (docId: string, nodeId: string, grade: ReviewGrade) => void;
   resetDemo: () => string;
   updateApiConfig: (config: ApiConfig | null) => void;
@@ -66,12 +69,25 @@ function initialDocs(): KnowledgeDoc[] {
   return [createDemoDoc()];
 }
 
+/** 合并本地与服务端数据：同一会话取 updatedAt 较新的版本 */
+function mergeDocs(remote: KnowledgeDoc[], local: KnowledgeDoc[]): KnowledgeDoc[] {
+  const byId = new Map(remote.map((doc) => [doc.id, doc]));
+  for (const doc of local) {
+    const existing = byId.get(doc.id);
+    if (!existing || doc.updatedAt > existing.updatedAt) {
+      byId.set(doc.id, doc);
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [docs, setDocs] = useState<KnowledgeDoc[]>(initialDocs);
   const [storedActiveId, setStoredActiveId] = useState<string | null>(() => loadActiveDocId());
   const [offsetDays, setOffsetDays] = useState(0);
   const [apiConfig, setApiConfig] = useState<ApiConfig | null>(() => loadApiConfig());
   const [serverAi, setServerAi] = useState<ServerAiStatus | null>(null);
+  const [hydrated, setHydrated] = useState(false);
 
   const refreshServerAi = useCallback(async () => {
     try {
@@ -91,13 +107,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const activeDocId = activeDoc?.id ?? null;
 
+  // 从服务端数据库读取一次，与本地缓存合并，之后以较新的版本为准
   useEffect(() => {
-    saveDocs(docs);
-  }, [docs]);
+    let alive = true;
+    void (async () => {
+      const remote = await fetchSnapshot();
+      if (!alive) {
+        return;
+      }
+      if (remote && remote.docs.length > 0) {
+        setDocs((local) => mergeDocs(remote.docs, local));
+        if (remote.activeDocId) {
+          setStoredActiveId(remote.activeDocId);
+        }
+      }
+      setHydrated(true);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
+    saveDocs(docs);
     saveActiveDocId(activeDocId);
-  }, [activeDocId]);
+  }, [docs, activeDocId]);
+
+  // 防抖写回服务端数据库；后端不可用时仍保留 localStorage 兜底
+  useEffect(() => {
+    if (!hydrated) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void pushSnapshot(docs, activeDocId);
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [docs, activeDocId, hydrated]);
 
   const setActiveDocId = useCallback((id: string) => {
     setStoredActiveId(id);
@@ -120,6 +165,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setStoredActiveId(id);
     return id;
   }, []);
+
+  const renameDoc = useCallback((id: string, title: string) => {
+    const nextTitle = title.trim();
+    if (!nextTitle) {
+      return;
+    }
+    setDocs((prev) =>
+      prev.map((doc) =>
+        doc.id === id ? { ...doc, title: nextTitle, updatedAt: Date.now() } : doc,
+      ),
+    );
+  }, []);
+
+  const deleteDoc = useCallback(
+    (id: string) => {
+      setDocs((prev) => prev.filter((doc) => doc.id !== id));
+      if (activeDoc?.id === id) {
+        const next = docs.find((doc) => doc.id !== id);
+        setStoredActiveId(next?.id ?? null);
+      }
+    },
+    [activeDoc, docs],
+  );
 
   const reviewNode = useCallback(
     (docId: string, nodeId: string, grade: ReviewGrade) => {
@@ -194,6 +262,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setOffsetDays,
       setActiveDocId,
       createDoc,
+      renameDoc,
+      deleteDoc,
       reviewNode,
       resetDemo,
       updateApiConfig,
@@ -211,6 +281,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshServerAi,
       setActiveDocId,
       createDoc,
+      renameDoc,
+      deleteDoc,
       reviewNode,
       resetDemo,
       updateApiConfig,
