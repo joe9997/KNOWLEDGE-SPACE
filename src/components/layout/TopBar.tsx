@@ -1,4 +1,4 @@
-import { Menu } from 'lucide-react';
+import { House, Menu } from 'lucide-react';
 import type { AppView } from '../../lib/types';
 import { useApp } from '../../state/AppStore';
 import { OrbitMark } from '../OrbitMark';
@@ -36,8 +36,14 @@ export function TopBar({ view, onNavigate, onOpenSidebar }: TopBarProps) {
           回源
         </span>
         <nav className="breadcrumb" aria-label="面包屑">
-          <button type="button" onClick={() => onNavigate('home')}>
-            回源
+          <button
+            type="button"
+            className="icon-button topbar__home"
+            onClick={() => onNavigate('home')}
+            aria-label="返回首页"
+            title="返回首页"
+          >
+            <House size={16} />
           </button>
           <span className="breadcrumb__sep" aria-hidden="true">
             /

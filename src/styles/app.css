@@ -234,8 +234,48 @@ ul {
   margin-left: auto;
 }
 
-.sidebar > .liquid-slot {
+.new-session-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: calc(100% - 4px);
+  height: 44px;
   margin: 0 2px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0)),
+    var(--glass-bg-soft);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(10, 30, 60, 0.14), inset 0 1px 0 var(--glass-inner);
+  transition: transform var(--transition-fast), border-color var(--transition-fast),
+    box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.new-session-button svg {
+  color: var(--accent);
+}
+
+.new-session-button:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  background: var(--glass-bg);
+  box-shadow: 0 12px 26px rgba(10, 30, 60, 0.18), inset 0 1px 0 var(--glass-inner);
+}
+
+.new-session-button:active {
+  transform: translateY(0);
+}
+
+.new-session-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .search-field {
@@ -315,18 +355,6 @@ ul {
 .session-item.is-active {
   background: var(--sidebar-active);
   border-color: var(--glass-border);
-}
-
-.session-item.is-active::before {
-  content: '';
-  position: absolute;
-  left: 3px;
-  top: 11px;
-  bottom: 11px;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-  box-shadow: 0 0 9px var(--accent-glow);
 }
 
 .session-item__title {
@@ -552,6 +580,23 @@ ul {
 
 .breadcrumb button:hover {
   color: var(--text);
+}
+
+.breadcrumb .topbar__home {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--glass-bg-faint);
+  color: var(--text-soft);
+}
+
+.breadcrumb .topbar__home:hover {
+  color: var(--text);
+  border-color: var(--glass-border-strong);
+  background: var(--glass-bg-soft);
 }
 
 .breadcrumb__current {
@@ -1071,25 +1116,6 @@ ul {
   max-width: 560px;
 }
 
-.security-note {
-  display: flex;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 13px;
-  border: 1px solid var(--line-strong);
-  background: var(--glass-bg-faint);
-  color: var(--text-soft);
-  font-size: 11px;
-  line-height: 1.8;
-  margin-bottom: 24px;
-}
-
-.security-note svg {
-  flex: 0 0 auto;
-  margin-top: 2px;
-  color: var(--accent);
-}
-
 .server-ai {
   display: flex;
   flex-direction: column;
@@ -1212,11 +1238,110 @@ ul {
   cursor: pointer;
 }
 
-.field__select-arrow {
-  position: absolute;
-  right: 12px;
-  pointer-events: none;
+.glass-select {
+  position: relative;
+}
+
+.glass-select__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  height: 44px;
+  padding: 0 13px;
+  border-radius: 11px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.glass-select__trigger:hover {
+  border-color: var(--line-strong);
+}
+
+.glass-select__trigger[aria-expanded='true'],
+.glass-select__trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: var(--glass-bg-faint);
+}
+
+.glass-select__chevron {
+  flex: 0 0 auto;
   color: var(--text-faint);
+  transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.glass-select__trigger[aria-expanded='true'] .glass-select__chevron {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+.glass-select__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  z-index: 30;
+  margin: 0;
+  padding: 5px;
+  border-radius: 13px;
+  border: 1px solid var(--line-strong);
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px) saturate(1.2);
+  animation: select-in 160ms var(--ease-soft);
+}
+
+@keyframes select-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.glass-select__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.glass-select__option.is-active {
+  background: var(--glass-bg-faint);
+  color: var(--text);
+}
+
+.glass-select__option.is-selected {
+  color: var(--accent-bright);
+}
+
+.glass-select__option svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-select__menu {
+    animation: none;
+  }
 }
 
 .field__suffix {
