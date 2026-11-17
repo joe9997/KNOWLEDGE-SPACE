@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import { StarfieldBackground } from './components/background/StarfieldBackground';
+import { AssistantChat } from './components/assistant/AssistantChat';
 import { Sidebar } from './components/layout/Sidebar';
 import { TopBar } from './components/layout/TopBar';
 import { QuizModal } from './components/quiz/QuizModal';
@@ -18,10 +20,12 @@ export default function App() {
   const [view, setView] = useState<AppView>('home');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [quizQueue, setQuizQueue] = useState<string[] | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   const navigate = useCallback((next: AppView) => {
     setView(next);
     setSidebarOpen(false);
+    setAssistantOpen(false);
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, []);
 
@@ -58,6 +62,19 @@ export default function App() {
       setSidebarOpen(false);
     }
   }, [isMobile]);
+
+  useEffect(() => {
+    if (!assistantOpen) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAssistantOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [assistantOpen]);
 
   useEffect(() => {
     document.body.classList.toggle('drawer-open', isMobile && sidebarOpen);
@@ -144,6 +161,15 @@ export default function App() {
             )}
 
             {view === 'api' && <ApiConfigPage />}
+
+            {view === 'assistant' && (
+              <AssistantChat
+                variant="page"
+                open
+                doc={null}
+                onClose={() => navigate('graph')}
+              />
+            )}
           </div>
         </main>
       </div>
@@ -154,6 +180,25 @@ export default function App() {
         queue={quizQueue ?? []}
         onClose={() => setQuizQueue(null)}
       />
+
+      <AssistantChat
+        open={assistantOpen}
+        doc={activeDoc}
+        onClose={() => setAssistantOpen(false)}
+      />
+
+      {view === 'graph' && activeDoc && !(isMobile && sidebarOpen) && (
+        <button
+          type="button"
+          className={`assistant-fab ${assistantOpen ? 'is-open' : ''}`.trim()}
+          onClick={() => setAssistantOpen((open) => !open)}
+          aria-label="AI 助手"
+          aria-expanded={assistantOpen}
+          title="AI 助手"
+        >
+          <Sparkles size={21} />
+        </button>
+      )}
     </div>
   );
 }

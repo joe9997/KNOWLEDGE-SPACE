@@ -1,4 +1,4 @@
-import type { GraphPosition, KnowledgeNode, Relation } from '../../lib/types';
+import type { KnowledgeNode, Relation } from '../../lib/types';
 
 export interface GraphLink {
   from: string;
@@ -6,32 +6,41 @@ export interface GraphLink {
   kind: 'tree' | 'relation';
 }
 
-/** 核心在中心，直接子节点围绕一圈，孙节点在父节点外侧 */
-export function computeGraphLayout(nodes: KnowledgeNode[]): Record<string, GraphPosition> {
-  const positions: Record<string, GraphPosition> = {};
+export interface SpherePoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function sphere(phi: number, theta: number): SpherePoint {
+  return {
+    x: Math.sin(phi) * Math.cos(theta),
+    y: Math.sin(phi) * Math.sin(theta),
+    z: Math.cos(phi),
+  };
+}
+
+/** 节点分布在球面上：核心在正面，子节点和孙节点依次向外圈铺开 */
+export function computeSphereLayout(nodes: KnowledgeNode[]): Record<string, SpherePoint> {
+  const points: Record<string, SpherePoint> = {};
   if (nodes.length === 0) {
-    return positions;
+    return points;
   }
 
   const core = nodes.find((node) => node.parentId === null) ?? nodes[0];
-  positions[core.id] = { x: 0, y: 0 };
+  points[core.id] = { x: 0, y: 0, z: 1 };
 
   const direct = nodes.filter(
     (node) => node.id !== core.id && (node.parentId === core.id || !node.parentId),
   );
   const directIds = new Set(direct.map((node) => node.id));
-  const ring1 = direct.length > 10 ? 240 : direct.length > 8 ? 215 : 195;
-  const startAngle = -Math.PI / 2;
+  const angles = new Map<string, number>();
 
-  const directAngles = new Map<string, number>();
   direct.forEach((node, index) => {
-    const angle = startAngle + (index / Math.max(direct.length, 1)) * Math.PI * 2;
-    directAngles.set(node.id, angle);
-    const radius = ring1 + (index % 2 === 0 ? 0 : 12);
-    positions[node.id] = {
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
-    };
+    const theta = (index / Math.max(direct.length, 1)) * Math.PI * 2;
+    const phi = 0.92 + (index % 2 === 0 ? 0 : 0.07);
+    angles.set(node.id, theta);
+    points[node.id] = sphere(phi, theta);
   });
 
   const grandchildren = nodes.filter(
@@ -45,31 +54,21 @@ export function computeGraphLayout(nodes: KnowledgeNode[]): Record<string, Graph
   });
 
   grandByParent.forEach((children, parentId) => {
-    const parentAngle = directAngles.get(parentId) ?? 0;
-    const spread = 0.34;
+    const parentTheta = angles.get(parentId) ?? 0;
     children.forEach((node, index) => {
-      const offset = children.length === 1 ? 0 : (index - (children.length - 1) / 2) * spread;
-      const angle = parentAngle + offset;
-      const radius = ring1 + 85 + index * 6;
-      positions[node.id] = {
-        x: Math.cos(angle) * radius,
-        y: Math.sin(angle) * radius,
-      };
+      const offset = children.length === 1 ? 0 : (index - (children.length - 1) / 2) * 0.4;
+      points[node.id] = sphere(1.58 + index * 0.05, parentTheta + offset);
     });
   });
 
-  // 孤立节点或环上的节点：放在最外圈，保证可见
-  const remaining = nodes.filter((node) => !positions[node.id]);
+  // 更深层级或孤立节点放到球体背面一圈，旋转时仍可看到
+  const remaining = nodes.filter((node) => !points[node.id]);
   remaining.forEach((node, index) => {
-    const angle = startAngle + (index / Math.max(remaining.length, 1)) * Math.PI * 2 + 0.3;
-    const radius = ring1 + 160;
-    positions[node.id] = {
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
-    };
+    const theta = (index / Math.max(remaining.length, 1)) * Math.PI * 2 + 0.4;
+    points[node.id] = sphere(2.28, theta);
   });
 
-  return positions;
+  return points;
 }
 
 export function buildGraphLinks(nodes: KnowledgeNode[], relations: Relation[]): GraphLink[] {
@@ -86,38 +85,4 @@ export function buildGraphLinks(nodes: KnowledgeNode[], relations: Relation[]): 
     }
   });
   return links;
-}
-
-export function curvePath(
-  from: GraphPosition,
-  to: GraphPosition,
-  bend = 0.075,
-): string {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const length = Math.hypot(dx, dy) || 1;
-  const midX = (from.x + to.x) / 2;
-  const midY = (from.y + to.y) / 2;
-  const controlX = midX + (-dy / length) * length * bend;
-  const controlY = midY + (dx / length) * length * bend;
-  return `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} Q ${controlX.toFixed(2)} ${controlY.toFixed(
-    2,
-  )} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
-}
-
-export function nodeTransform(position: GraphPosition): string {
-  return `translate(-50%, -50%) translate(${position.x}px, ${position.y}px)`;
-}
-
-export function layoutExtent(positions: Record<string, GraphPosition>): {
-  width: number;
-  height: number;
-} {
-  let maxX = 0;
-  let maxY = 0;
-  Object.values(positions).forEach((position) => {
-    maxX = Math.max(maxX, Math.abs(position.x));
-    maxY = Math.max(maxY, Math.abs(position.y));
-  });
-  return { width: maxX * 2 + 160, height: maxY * 2 + 120 };
 }

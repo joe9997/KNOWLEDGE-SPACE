@@ -9,6 +9,23 @@ export interface TestResult {
   message: string;
 }
 
+export interface ChatTextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface ChatImagePart {
+  type: 'image_url';
+  image_url: { url: string };
+}
+
+export type ChatContent = string | Array<ChatTextPart | ChatImagePart>;
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: ChatContent;
+}
+
 function requestError(error: unknown): Error {
   if (error instanceof Error && error.name === 'AbortError') {
     return new Error('请求超时，请检查网络或模型服务地址。');
@@ -59,6 +76,47 @@ export async function testConnection(config: AiConfig): Promise<TestResult> {
     count: data.data.length,
     message: `连接成功：${config.model} 所在服务 /models 返回 ${data.data.length} 个可用模型。`,
   };
+}
+
+/** 多轮问答：把消息原样转发给 OpenAI 兼容接口，返回纯文本回复。 */
+export async function chat(
+  config: AiConfig,
+  messages: ChatMessage[],
+  timeoutMs: number,
+): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.5,
+        stream: false,
+        messages,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    throw requestError(error);
+  }
+  if (!response.ok) {
+    throw new Error(`模型调用失败 · ${await readDetail(response)}`);
+  }
+  let data: { choices?: Array<{ message?: { content?: unknown } }> };
+  try {
+    data = (await response.json()) as typeof data;
+  } catch {
+    throw new Error('模型返回的不是 JSON，无法解析。');
+  }
+  const content = data.choices?.[0]?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error('模型返回为空或格式不可识别。');
+  }
+  return content.trim();
 }
 
 /** 对单个文本块调用模型并解析成节点；失败时抛出带真实原因的 Error。 */

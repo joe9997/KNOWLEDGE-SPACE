@@ -15,6 +15,7 @@ const VIEW_LABEL: Record<AppView, string> = {
   new: '新建会话',
   graph: '知识网络',
   api: '接入 API',
+  assistant: 'AI 助手',
 };
 
 export function TopBar({ view, onNavigate, onOpenSidebar }: TopBarProps) {
