@@ -1,0 +1,169 @@
+/* 主题令牌：深色为深海军蓝，浅色为雾蓝珍珠玻璃（独立设计，不是反色） */
+:root {
+  --font-serif: 'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', Georgia,
+    serif;
+  --font-sans: 'Inter', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+
+  --sidebar-width: 280px;
+  --sidebar-gap: 16px;
+  --radius-panel: 26px;
+  --radius-card: 22px;
+  --radius-control: 14px;
+
+  --ease-soft: cubic-bezier(0.22, 0.68, 0.28, 1);
+  --transition-fast: 160ms var(--ease-soft);
+  --transition-base: 260ms var(--ease-soft);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #050b19;
+  --bg-deep: #03070f;
+  --bg-glow-a: rgba(28, 74, 143, 0.3);
+  --bg-glow-b: rgba(17, 46, 92, 0.32);
+
+  --text: #eef4ff;
+  --text-soft: rgba(219, 232, 252, 0.72);
+  --text-faint: rgba(203, 221, 246, 0.46);
+
+  --accent: #8fc2ff;
+  --accent-bright: #d3e6ff;
+  --accent-deep: #4b86d8;
+  --accent-glow: rgba(124, 178, 255, 0.4);
+
+  --line: rgba(168, 202, 255, 0.15);
+  --line-strong: rgba(190, 218, 255, 0.3);
+
+  --glass-bg: linear-gradient(
+    155deg,
+    rgba(128, 178, 255, 0.13) 0%,
+    rgba(33, 62, 112, 0.3) 46%,
+    rgba(9, 20, 40, 0.34) 100%
+  );
+  --glass-bg-soft: linear-gradient(
+    155deg,
+    rgba(118, 168, 248, 0.1) 0%,
+    rgba(22, 42, 78, 0.28) 100%
+  );
+  --glass-bg-faint: rgba(16, 34, 64, 0.4);
+  --glass-border: rgba(184, 214, 255, 0.2);
+  --glass-border-strong: rgba(208, 231, 255, 0.4);
+  --glass-inner: rgba(255, 255, 255, 0.2);
+  --glass-shadow: 0 26px 70px rgba(1, 6, 18, 0.5), 0 2px 12px rgba(1, 6, 18, 0.32);
+
+  --input-bg: rgba(8, 20, 41, 0.5);
+  --input-border: rgba(168, 202, 255, 0.2);
+  --scrim: rgba(2, 6, 14, 0.62);
+
+  --sidebar-active: linear-gradient(90deg, rgba(122, 180, 255, 0.2), rgba(122, 180, 255, 0.035));
+  --label-bg: rgba(7, 17, 35, 0.62);
+  --label-border: rgba(176, 209, 255, 0.16);
+
+  --link: rgba(154, 195, 245, 0.3);
+  --link-strong: rgba(173, 211, 255, 0.42);
+
+  --node-due: #ff9cc7;
+  --node-due-glow: rgba(255, 124, 180, 0.5);
+  --node-fuzzy: #f2c875;
+  --node-fuzzy-glow: rgba(240, 192, 105, 0.42);
+  --node-mastered: #8ce9c4;
+  --node-mastered-glow: rgba(112, 231, 186, 0.42);
+  --node-muted: rgba(203, 221, 246, 0.34);
+
+  --mark-bg: rgba(255, 208, 128, 0.22);
+  --mark-line: rgba(245, 199, 116, 0.8);
+
+  --success: #8ce9c4;
+  --success-bg: rgba(104, 220, 173, 0.12);
+  --danger: #ff9b9b;
+  --danger-bg: rgba(255, 120, 120, 0.12);
+  --warning: #f2c875;
+
+  --glass-btn-bg: linear-gradient(
+    150deg,
+    rgba(255, 255, 255, 0.14),
+    rgba(255, 255, 255, 0.04) 46%,
+    rgba(120, 172, 255, 0.12)
+  );
+  --glass-btn-shadow: rgba(1, 6, 18, 0.38);
+
+  --scrollbar: rgba(170, 204, 255, 0.24);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #dbe7f4;
+  --bg-deep: #cfdeee;
+  --bg-glow-a: rgba(255, 255, 255, 0.7);
+  --bg-glow-b: rgba(150, 182, 218, 0.4);
+
+  --text: #102844;
+  --text-soft: #3f5878;
+  --text-faint: #6b829e;
+
+  --accent: #2b5f9b;
+  --accent-bright: #174a80;
+  --accent-deep: #7fa4cb;
+  --accent-glow: rgba(84, 129, 180, 0.28);
+
+  --line: rgba(255, 255, 255, 0.68);
+  --line-strong: rgba(255, 255, 255, 0.9);
+
+  --glass-bg: linear-gradient(
+    150deg,
+    rgba(255, 255, 255, 0.86) 0%,
+    rgba(255, 255, 255, 0.62) 52%,
+    rgba(240, 248, 255, 0.7) 100%
+  );
+  --glass-bg-soft: linear-gradient(
+    150deg,
+    rgba(255, 255, 255, 0.84) 0%,
+    rgba(247, 251, 255, 0.64) 100%
+  );
+  --glass-bg-faint: rgba(255, 255, 255, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.98);
+  --glass-border-strong: #ffffff;
+  --glass-inner: rgba(255, 255, 255, 0.96);
+  --glass-shadow: 0 22px 54px rgba(42, 71, 108, 0.18), 0 2px 10px rgba(42, 71, 108, 0.08);
+
+  --input-bg: rgba(255, 255, 255, 0.62);
+  --input-border: rgba(255, 255, 255, 0.85);
+  --scrim: rgba(37, 60, 88, 0.34);
+
+  --sidebar-active: linear-gradient(90deg, rgba(255, 255, 255, 0.92), rgba(208, 230, 253, 0.5));
+  --label-bg: rgba(255, 255, 255, 0.74);
+  --label-border: rgba(255, 255, 255, 0.8);
+
+  --link: rgba(47, 84, 126, 0.26);
+  --link-strong: rgba(41, 80, 123, 0.36);
+
+  --node-due: #c94f85;
+  --node-due-glow: rgba(201, 79, 133, 0.38);
+  --node-fuzzy: #b9801c;
+  --node-fuzzy-glow: rgba(185, 128, 28, 0.32);
+  --node-mastered: #2a9371;
+  --node-mastered-glow: rgba(42, 147, 113, 0.32);
+  --node-muted: rgba(45, 75, 108, 0.32);
+
+  --mark-bg: rgba(255, 208, 108, 0.42);
+  --mark-line: rgba(179, 127, 24, 0.6);
+
+  --success: #1f7a5b;
+  --success-bg: rgba(35, 148, 111, 0.12);
+  --danger: #b23a3a;
+  --danger-bg: rgba(196, 70, 70, 0.1);
+  --warning: #a06a12;
+
+  --glass-btn-bg: linear-gradient(
+    150deg,
+    rgba(255, 255, 255, 0.92),
+    rgba(255, 255, 255, 0.48) 50%,
+    rgba(220, 235, 251, 0.62)
+  );
+  --glass-btn-shadow: rgba(40, 70, 108, 0.18);
+
+  --scrollbar: rgba(47, 81, 121, 0.24);
+}

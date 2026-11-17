@@ -1,0 +1,225 @@
+/* 玻璃材质：大面板保留一层 backdrop-filter，小元素只用渐变/边框/内高光 */
+.glass-panel {
+  position: relative;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-inner),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px) saturate(128%);
+  -webkit-backdrop-filter: blur(20px) saturate(128%);
+}
+
+.glass-card {
+  position: relative;
+  background: var(--glass-bg-soft);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-inner);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+
+.glass-inset {
+  background: var(--glass-bg-faint);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.glass-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 22px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border-strong);
+  background: var(--glass-btn-bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  box-shadow: 0 12px 30px var(--glass-btn-shadow), inset 0 1px 0 var(--glass-inner);
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast),
+    border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.glass-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: 0 16px 34px var(--glass-btn-shadow), inset 0 1px 0 var(--glass-inner),
+    0 0 0 1px var(--accent-glow);
+}
+
+.glass-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.glass-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.glass-button--wide {
+  width: 100%;
+}
+
+.glass-button--quiet {
+  border-color: var(--line);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-soft);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--glass-bg-faint);
+  color: var(--text-soft);
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: color var(--transition-fast), border-color var(--transition-fast),
+    background var(--transition-fast), transform var(--transition-fast);
+}
+
+.icon-button:hover {
+  color: var(--text);
+  border-color: var(--glass-border-strong);
+  background: var(--glass-bg-soft);
+}
+
+.icon-button:active {
+  transform: scale(0.96);
+}
+
+.theme-toggle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+}
+
+/* Liquid Glass 主按钮 */
+.liquid-slot {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.liquid-slot.is-disabled {
+  opacity: 0.48;
+}
+
+/* 库内部的 SVG 滤镜与装饰层绝不能拦截点击，也不能扭曲文字 */
+.liquid-slot svg {
+  pointer-events: none !important;
+}
+
+.liquid-slot > div {
+  pointer-events: none;
+}
+
+.liquid-glass-root .glass {
+  width: 100%;
+  height: 100%;
+  justify-content: center;
+  /* 覆盖库内固定阴影，使用主题化阴影 */
+  box-shadow: 0 16px 40px var(--glass-btn-shadow), inset 0 1px 0 var(--glass-inner) !important;
+}
+
+.liquid-glass-root .glass > div {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:root[data-theme='light'] .liquid-glass-root .glass {
+  background: linear-gradient(
+    150deg,
+    rgba(255, 255, 255, 0.68) 0%,
+    rgba(243, 249, 255, 0.36) 52%,
+    rgba(255, 255, 255, 0.56) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.86);
+}
+
+:root[data-theme='light'] .liquid-glass-root .glass::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  z-index: 0;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(
+    150deg,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(255, 255, 255, 0.64) 52%,
+    rgba(255, 255, 255, 0.82) 100%
+  );
+}
+
+/* 日间首页主按钮：深色玻璃，在明亮山景上保持锚点感 */
+:root[data-theme='light'] .liquid-slot--contrast .liquid-glass-root .glass::after {
+  background: linear-gradient(
+    150deg,
+    rgba(10, 26, 45, 0.96) 0%,
+    rgba(21, 44, 73, 0.92) 52%,
+    rgba(31, 59, 94, 0.94) 100%
+  );
+}
+
+:root[data-theme='light'] .liquid-slot--contrast .liquid-glass-root .glass {
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+:root[data-theme='light'] .liquid-slot--contrast .liquid-glass__label {
+  color: #f4f9ff;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.28);
+}
+
+.liquid-glass__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.035em;
+  color: var(--text);
+  white-space: nowrap;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.18);
+}
+
+:root[data-theme='light'] .liquid-glass__label {
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.liquid-slot__hit {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 999px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.liquid-slot__hit:disabled {
+  cursor: not-allowed;
+}
+
+.liquid-slot:has(.liquid-slot__hit:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 999px;
+}
