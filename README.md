@@ -50,11 +50,15 @@ npm test
 
 ### 单文件离线版 `KNOWLEDGE-SPACE.html`
 
-约 880 KB，JS、CSS、背景图全部内联在这一个文件里，没有任何外部请求。
+约 960 KB，JS、CSS、背景图全部内联在这一个文件里，没有任何外部请求。
+**双击就能打开**，不需要 Node、不需要联网、不需要起服务器。
 
-- **双击就能打开**，不需要 Node、不需要联网、不需要起服务器。
-- 深色 / 浅色主题、知识网络、自测复习、Markdown 导出、API 配置全部可用；
-  数据照常存在浏览器的 `localStorage` / `sessionStorage` 里。
+> ⚠️ 当前版本引入了后端与账号（`server/`，Passkey / 密码登录、服务端 AI 抽取）。
+> 单文件版**只打包了前端**，所以双击后看到的是登录界面，无法真正登录。
+> 要看完整功能，请用 `npm install && npm run dev:all`（前端 5173 + 后端 3001）。
+> 离线版仍然可以用来查看界面、走查样式、在没网的机器上演示外观。
+
+- 深色 / 浅色主题、知识网络、自测复习、Markdown 导出都能渲染。
 - 发微信、发邮件、拷到 U 盘给同学，都是这一个文件。
 
 需要重新生成时（改了 UI 之后）：
@@ -94,9 +98,9 @@ GitHub 上开 PR → CI 绿 → 1 人 Approve → Squash merge（自动删分支
 | --- | --- |
 | CI：`npm test` + `npm run build` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | 发布：合并进 main 自动部署 Pages | [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) |
+| PR / Issue 模板、CODEOWNERS | `.github/` |
 
 在线地址：**https://joe9997.github.io/KNOWLEDGE-SPACE/**
-| PR / Issue 模板、CODEOWNERS | `.github/` |
 
 ## 已实现
 
