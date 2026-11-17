@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:single": "node tools/build-single.mjs"
   },
   "dependencies": {
     "liquid-glass-react": "^1.1.1",

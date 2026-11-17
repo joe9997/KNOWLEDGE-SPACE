@@ -28,6 +28,28 @@ npm run preview
 npm test
 ```
 
+## 不装 Node 也能看：双击 `KNOWLEDGE-SPACE.html`
+
+仓库根目录的 **`KNOWLEDGE-SPACE.html`**（约 880 KB）是整个网页的**单文件离线版**：
+JS、CSS、字体、背景图全部内联在这一个文件里，没有任何外部请求。
+
+- **双击就能打开**，不需要 Node、不需要联网、不需要起服务器。
+- 深色 / 浅色主题、知识网络、自测复习、Markdown 导出、API 配置全部可用；
+  数据照常存在浏览器的 `localStorage` / `sessionStorage` 里。
+- 发微信、发邮件、拷到 U 盘给同学，都是这一个文件。
+
+需要重新生成时（改了 UI 之后）：
+
+```bash
+npm run build:single
+```
+
+> 它会先跑一次 IIFE 格式的构建，再把产物内联成单文件。
+> 直接提交 Vite 产出的 `dist/index.html` 是不行的——那里用的是
+> `<script type="module">`，`file://` 协议下浏览器会按 CORS 规则拒绝加载，双击只会白屏。
+
+最新版本也可以从 GitHub Actions 的 `standalone-html` 产物里直接下载，不必 clone 仓库。
+
 ## 团队协作（6 人）
 
 仓库是 **Private**，只有项目组的 6 个 GitHub 账号能访问。

@@ -4,9 +4,12 @@ node_modules/
 
 # 构建产物
 dist/
+dist-single/
 dist-ssr/
 *.local
 *.tsbuildinfo
+
+# 单文件离线版是会提交的（KNOWLEDGE-SPACE.html），只忽略它的中间目录
 
 # 编辑器导出的分享包（Trae / 其他）
 .trae-html-share-packages/

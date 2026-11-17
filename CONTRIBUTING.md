@@ -209,7 +209,17 @@ npm run test        # vitest
 npm run test:watch  # 监听模式
 npm run build       # tsc --noEmit + vite build
 npm run preview     # 预览构建产物
+npm run build:single  # 重新生成根目录的 KNOWLEDGE-SPACE.html（单文件离线版）
 ```
+
+### 关于 `KNOWLEDGE-SPACE.html`
+
+这是给「不装 Node 的同事 / 外部同事」看的单文件快照，双击就能在浏览器打开。
+**改了 UI 的 PR，请顺手跑一次 `npm run build:single` 并把生成的 HTML 一起提交**，
+否则别人拿到的还是旧画面。CI 发现它和源码不一致时会在 PR 里标警告。
+
+不要把 `dist/index.html` 直接提交当离线版用：它引用外部 module 脚本，
+`file://` 下会白屏。`tools/build-single.mjs` 就是为解决这个问题写的（IIFE + 全内联）。
 
 ---
 
