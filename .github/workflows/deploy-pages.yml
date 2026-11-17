@@ -1,9 +1,8 @@
 name: Deploy to GitHub Pages
 
-# Private 仓库的 Pages 需要 GitHub Pro / Team 套餐。
-# 所以这里只保留手动触发：套餐可用后再点 "Run workflow"，
-# 确认能上线了再把 push 触发器打开。
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

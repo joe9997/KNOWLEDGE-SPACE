@@ -1,6 +1,7 @@
 # 协作指南 · KNOWLEDGE-SPACE
 
-6 人共同维护这一个前端仓库，仓库是 **Private**，只有下面列出的 6 个 GitHub 账号能看到。
+6 人共同维护这一个前端仓库。仓库是 **Public**：所有人可看，但只有下面列出的 6 个
+GitHub 账号有推送权限。
 约定不是形式主义——目的是**每个人每天都能合进 main，且不互相踩脚**。
 
 ---
@@ -92,27 +93,25 @@ git push -u origin feat/your-thing
 
 Settings：
 
-1. **General → Danger Zone**：确认 **Private**（已设好，别手滑改 public）。
-2. **Branches → Branch protection rules**，分支名 `main`：
-   - ✅ Require a pull request before merging
-   - ✅ Require approvals = **1**
+1. **General → Danger Zone**：仓库现在是 **Public**（任何人可看，只有 6 个账号能推）。
+   - 意识到公开意味着源码全球可见：**不要把 API Key、`.env`、内部文档提交进来**。
+   - 想改回私有：Settings 最底部 `Change visibility`。
+2. **Branches → Branch protection rule**，分支名 `main`：**已开启**，现状是
+   - ✅ Require a pull request before merging（approvals = 1）
    - ✅ Dismiss stale approvals when new commits are pushed
-   - ✅ Require status checks to pass → 选 `check`
+   - ✅ Require status checks to pass → `check`
    - ✅ Require conversation resolution before merging
-   - ✅ Do not allow bypassing the above settings（含管理员）
-   - ❌ 不勾 Allow force pushes / Allow deletions
-
-   > ⚠️ 免费账号的 Private 仓库点不开分支保护（GitHub 会提示升级）。
-   > 两个选择：① 升级 GitHub Pro（约 $4/月）解锁；② 暂时不开，靠本文件的约定 + 群里互相提醒。
-   > 无论哪种，「不直接 push main」这条都要守住。
+   - ✅ Do not allow bypassing the above settings（管理员同样受限）
+   - ❌ Allow force pushes / Allow deletions
 3. **General → Pull Requests**：只留 **Allow squash merging**（已配好），并开了合并后自动删分支。
-4. **Collaborators and teams**：只有 6 个账号，权限一律 **Write**。管理员 1–2 人。
+4. **Collaborators and teams**：6 个账号，权限一律 **Write**。管理员 1–2 人。
+   - Public 仓库其他人只能 fork / 看，**推不了分支**；能推的只有这 6 个。
    - 有人离组：立刻 Remove，历史提交不受影响。
-5. **Actions → General → Workflow permissions**：选 *Read and write*（Pages 部署要）。
-6. **Pages → Source**：选 **GitHub Actions**（需要 Pro / Team 套餐）。
+5. **Actions → General → Workflow permissions**：*Read and write*（已配好，Pages 部署要）。
+6. **Pages → Source**：**GitHub Actions**（已配好）。
 
-> Private 仓库的 Pages 需要付费套餐。`deploy-pages.yml` 已改成**只有手动触发**，
-> 在套餐可用前不会因为每次 push 而报失败。
+> 公开仓库的 Pages 免费可用。合并进 main 后自动部署到
+> https://joe9997.github.io/KNOWLEDGE-SPACE/
 
 ---
 
@@ -225,7 +224,8 @@ npm run build:single  # 重新生成根目录的 KNOWLEDGE-SPACE.html（单文�
 
 ## 7. 发布
 
-推 main 后 `.github/workflows/deploy-pages.yml` 会构建并发布（需要 Pages 可用）。
+推 main 后 `.github/workflows/deploy-pages.yml` 会构建并发布到
+https://joe9997.github.io/KNOWLEDGE-SPACE/ 。
 `vite.config.ts` 里 `base: './'`，所以子路径部署和本地 `npm run dev` 都不用改配置。
 
 看某个 PR 的效果：本地 checkout 那个分支跑 `npm run dev`，不要为此合进 main。
