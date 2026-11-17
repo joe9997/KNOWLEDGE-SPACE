@@ -1,0 +1,193 @@
+import { useState } from 'react';
+import type { FormEvent } from 'react';
+import { Fingerprint, Loader2, Lock, Mail, Sparkles, UserRound } from 'lucide-react';
+import { useApp } from '../../state/AppStore';
+import { passkeySupported } from '../../lib/auth';
+
+type Mode = 'login' | 'register';
+
+export function AuthModal() {
+  const { login, register, loginWithPasskey } = useApp();
+  const [mode, setMode] = useState<Mode>('login');
+  const [identifier, setIdentifier] = useState('');
+  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const canPasskey = passkeySupported();
+
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    setError(null);
+    setPassword('');
+  };
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitLogin = (event: FormEvent) => {
+    event.preventDefault();
+    if (!identifier.trim() || !password) {
+      setError('请输入账号和密码');
+      return;
+    }
+    void run(() => login(identifier.trim(), password));
+  };
+
+  const submitRegister = (event: FormEvent) => {
+    event.preventDefault();
+    if (!email.trim() || !username.trim() || !password) {
+      setError('请填写邮箱、用户名和密码');
+      return;
+    }
+    void run(() => register(email.trim(), username.trim(), password));
+  };
+
+  return (
+    <div className="auth-overlay" role="dialog" aria-modal="true" aria-label="登录">
+      <div className="auth-modal glass-panel">
+        <div className="auth-modal__brand">
+          <span className="auth-modal__logo">
+            <Sparkles size={18} />
+          </span>
+          <div>
+            <h1>回源</h1>
+            <p>KNOWLEDGE SPACE</p>
+          </div>
+        </div>
+
+        <div className="auth-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'login'}
+            className={mode === 'login' ? 'is-active' : ''}
+            onClick={() => switchMode('login')}
+          >
+            登录
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'register'}
+            className={mode === 'register' ? 'is-active' : ''}
+            onClick={() => switchMode('register')}
+          >
+            注册
+          </button>
+        </div>
+
+        {mode === 'login' ? (
+          <form className="auth-form" onSubmit={submitLogin}>
+            <label className="auth-field">
+              <span>邮箱或用户名</span>
+              <div className="auth-field__control">
+                <UserRound size={15} />
+                <input
+                  value={identifier}
+                  onChange={(event) => setIdentifier(event.target.value)}
+                  placeholder="you@example.com 或 用户名"
+                  autoComplete="username"
+                  autoFocus
+                />
+              </div>
+            </label>
+            <label className="auth-field">
+              <span>密码</span>
+              <div className="auth-field__control">
+                <Lock size={15} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="密码"
+                  autoComplete="current-password"
+                />
+              </div>
+            </label>
+
+            {error && <p className="auth-error">{error}</p>}
+
+            <button type="submit" className="auth-submit" disabled={busy}>
+              {busy ? <Loader2 size={15} className="spinner" /> : null}
+              {busy ? '正在登录…' : '登录'}
+            </button>
+
+            {canPasskey && (
+              <button
+                type="button"
+                className="auth-passkey"
+                disabled={busy}
+                onClick={() => void run(loginWithPasskey)}
+              >
+                <Fingerprint size={16} />
+                使用 Passkey 登录
+              </button>
+            )}
+          </form>
+        ) : (
+          <form className="auth-form" onSubmit={submitRegister}>
+            <label className="auth-field">
+              <span>邮箱</span>
+              <div className="auth-field__control">
+                <Mail size={15} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  autoFocus
+                />
+              </div>
+            </label>
+            <label className="auth-field">
+              <span>用户名</span>
+              <div className="auth-field__control">
+                <UserRound size={15} />
+                <input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="2–20 个字符"
+                  autoComplete="username"
+                />
+              </div>
+            </label>
+            <label className="auth-field">
+              <span>密码</span>
+              <div className="auth-field__control">
+                <Lock size={15} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="至少 8 位"
+                  autoComplete="new-password"
+                />
+              </div>
+            </label>
+
+            {error && <p className="auth-error">{error}</p>}
+
+            <button type="submit" className="auth-submit" disabled={busy}>
+              {busy ? <Loader2 size={15} className="spinner" /> : null}
+              {busy ? '正在注册…' : '注册'}
+            </button>
+          </form>
+        )}
+
+        <p className="auth-footnote">登录后即可使用，数据保存在你的账号下。</p>
+      </div>
+    </div>
+  );
+}

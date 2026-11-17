@@ -48,7 +48,12 @@ const dataDir = path.resolve(
   '..',
   'data',
 );
-const dataFile = path.join(dataDir, 'knowledge-space.json');
+
+/** 每个用户一份知识数据文件，避免互相串数据 */
+function dataFileFor(userId: string): string {
+  const safe = userId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(dataDir, 'users', `${safe}.json`);
+}
 
 function str(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
@@ -134,9 +139,9 @@ export function sanitizeDocs(raw: unknown): StoredDoc[] | null {
     .filter((doc): doc is StoredDoc => doc !== null);
 }
 
-export async function readSnapshot(): Promise<Snapshot> {
+export async function readSnapshot(userId: string): Promise<Snapshot> {
   try {
-    const raw = await readFile(dataFile, 'utf8');
+    const raw = await readFile(dataFileFor(userId), 'utf8');
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return {
       docs: sanitizeDocs(parsed.docs) ?? [],
@@ -151,14 +156,15 @@ export async function readSnapshot(): Promise<Snapshot> {
 // 串行写入 + 临时文件替换，避免并发写坏数据文件
 let writeQueue: Promise<void> = Promise.resolve();
 
-export function writeSnapshot(snapshot: Snapshot): Promise<void> {
+export function writeSnapshot(userId: string, snapshot: Snapshot): Promise<void> {
   const payload = JSON.stringify(snapshot, null, 2);
   writeQueue = writeQueue
     .then(async () => {
-      await mkdir(dataDir, { recursive: true });
-      const temp = `${dataFile}.tmp`;
+      const file = dataFileFor(userId);
+      await mkdir(path.dirname(file), { recursive: true });
+      const temp = `${file}.tmp`;
       await writeFile(temp, payload, 'utf8');
-      await rename(temp, dataFile);
+      await rename(temp, file);
     })
     .catch((error: unknown) => {
       console.warn(`[store] 写入失败 · ${error instanceof Error ? error.message : String(error)}`);

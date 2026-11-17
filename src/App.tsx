@@ -1,26 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { StarfieldBackground } from './components/background/StarfieldBackground';
+import { AuthModal } from './components/auth/AuthModal';
 import { AssistantChat } from './components/assistant/AssistantChat';
 import { Sidebar } from './components/layout/Sidebar';
 import { TopBar } from './components/layout/TopBar';
 import { QuizModal } from './components/quiz/QuizModal';
-import { ApiConfigPage } from './pages/ApiConfigPage';
 import { GraphPage } from './pages/GraphPage';
 import { HomePage } from './pages/HomePage';
 import { NewSessionPage } from './pages/NewSessionPage';
+import { SettingsPage } from './pages/SettingsPage';
+import type { SettingsSection } from './pages/SettingsPage';
 import { isDue } from './lib/review';
 import type { AppView } from './lib/types';
 import { useMediaQuery } from './lib/useMediaQuery';
 import { useApp } from './state/AppStore';
 
 export default function App() {
-  const { activeDoc, activeDocId, now, resetDemo, setActiveDocId } = useApp();
+  const { activeDoc, activeDocId, now, resetDemo, setActiveDocId, currentUser, authLoading } =
+    useApp();
   const isMobile = useMediaQuery('(max-width: 900px)');
   const [view, setView] = useState<AppView>('home');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [quizQueue, setQuizQueue] = useState<string[] | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('user');
 
   const navigate = useCallback((next: AppView) => {
     setView(next);
@@ -100,6 +104,23 @@ export default function App() {
     }
   }, [isMobile, sidebarOpen]);
 
+  if (authLoading) {
+    return (
+      <div className="app">
+        <StarfieldBackground />
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="app">
+        <StarfieldBackground />
+        <AuthModal />
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <StarfieldBackground />
@@ -156,11 +177,14 @@ export default function App() {
                   setActiveDocId(id);
                   navigate('graph');
                 }}
-                onOpenApi={() => navigate('api')}
+                onOpenApi={() => {
+                  setSettingsSection('api');
+                  navigate('settings');
+                }}
               />
             )}
 
-            {view === 'api' && <ApiConfigPage />}
+            {view === 'settings' && <SettingsPage initialSection={settingsSection} />}
 
             {view === 'assistant' && (
               <AssistantChat

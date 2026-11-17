@@ -5,6 +5,14 @@ const ACTIVE_KEY = 'huiyuan.activeDoc.v1';
 const THEME_KEY = 'huiyuan.theme';
 const API_KEY = 'huiyuan.api.session.v1';
 
+function docsKey(userId: string): string {
+  return `${DOCS_KEY}.${userId}`;
+}
+
+function activeKey(userId: string): string {
+  return `${ACTIVE_KEY}.${userId}`;
+}
+
 function safeParse<T>(raw: string | null): T | null {
   if (!raw) {
     return null;
@@ -16,8 +24,8 @@ function safeParse<T>(raw: string | null): T | null {
   }
 }
 
-export function loadDocs(): KnowledgeDoc[] | null {
-  const parsed = safeParse<KnowledgeDoc[]>(localStorage.getItem(DOCS_KEY));
+export function loadDocs(userId: string): KnowledgeDoc[] | null {
+  const parsed = safeParse<KnowledgeDoc[]>(localStorage.getItem(docsKey(userId)));
   if (!Array.isArray(parsed)) {
     return null;
   }
@@ -31,23 +39,23 @@ export function loadDocs(): KnowledgeDoc[] | null {
   );
 }
 
-export function saveDocs(docs: KnowledgeDoc[]): void {
+export function saveDocs(userId: string, docs: KnowledgeDoc[]): void {
   try {
-    localStorage.setItem(DOCS_KEY, JSON.stringify(docs));
+    localStorage.setItem(docsKey(userId), JSON.stringify(docs));
   } catch (error) {
     console.warn('保存文档失败', error);
   }
 }
 
-export function loadActiveDocId(): string | null {
-  return localStorage.getItem(ACTIVE_KEY);
+export function loadActiveDocId(userId: string): string | null {
+  return localStorage.getItem(activeKey(userId));
 }
 
-export function saveActiveDocId(id: string | null): void {
+export function saveActiveDocId(userId: string, id: string | null): void {
   if (id) {
-    localStorage.setItem(ACTIVE_KEY, id);
+    localStorage.setItem(activeKey(userId), id);
   } else {
-    localStorage.removeItem(ACTIVE_KEY);
+    localStorage.removeItem(activeKey(userId));
   }
 }
 
@@ -59,19 +67,23 @@ export function saveTheme(theme: ThemeMode): void {
   localStorage.setItem(THEME_KEY, theme);
 }
 
-/** API 配置只允许存在 sessionStorage，刷新标签页即失效；绝不写入 localStorage */
-export function loadApiConfig(): import('./types').ApiConfig | null {
-  const parsed = safeParse<import('./types').ApiConfig>(sessionStorage.getItem(API_KEY));
+/** API 配置按用户隔离（BYOK 的 key 只在当前标签页 sessionStorage，刷新即失效） */
+function apiConfigKey(userId: string): string {
+  return `${API_KEY}.${userId}`;
+}
+
+export function loadApiConfig(userId: string): import('./types').ApiConfig | null {
+  const parsed = safeParse<import('./types').ApiConfig>(sessionStorage.getItem(apiConfigKey(userId)));
   if (!parsed || typeof parsed.apiKey !== 'string' || typeof parsed.baseUrl !== 'string') {
     return null;
   }
   return parsed;
 }
 
-export function saveApiConfig(config: import('./types').ApiConfig): void {
-  sessionStorage.setItem(API_KEY, JSON.stringify(config));
+export function saveApiConfig(userId: string, config: import('./types').ApiConfig): void {
+  sessionStorage.setItem(apiConfigKey(userId), JSON.stringify(config));
 }
 
-export function clearApiConfig(): void {
-  sessionStorage.removeItem(API_KEY);
+export function clearApiConfig(userId: string): void {
+  sessionStorage.removeItem(apiConfigKey(userId));
 }

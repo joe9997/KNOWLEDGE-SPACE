@@ -11,6 +11,15 @@ import { createDemoDoc, DEMO_DOC_ID } from '../data/demo';
 import { createId } from '../lib/id';
 import { DAY_MS, scheduleReview } from '../lib/review';
 import {
+  apiChangePassword,
+  apiLogin,
+  apiLogout,
+  apiMe,
+  apiRegister,
+  apiUpdateProfile,
+  loginWithPasskey,
+} from '../lib/auth';
+import {
   clearApiConfig,
   loadActiveDocId,
   loadApiConfig,
@@ -25,6 +34,7 @@ import type {
   KnowledgeDoc,
   KnowledgeNode,
   ReviewGrade,
+  User,
 } from '../lib/types';
 import { validateApiConfig } from '../lib/llm';
 import { fetchSnapshot, pushSnapshot } from '../lib/persistence';
@@ -48,6 +58,8 @@ interface AppContextValue {
   apiReady: boolean;
   serverAi: ServerAiStatus | null;
   aiReady: boolean;
+  currentUser: User | null;
+  authLoading: boolean;
   refreshServerAi: () => Promise<void>;
   setOffsetDays: (days: number) => void;
   setActiveDocId: (id: string) => void;
@@ -57,17 +69,16 @@ interface AppContextValue {
   reviewNode: (docId: string, nodeId: string, grade: ReviewGrade) => void;
   resetDemo: () => string;
   updateApiConfig: (config: ApiConfig | null) => void;
+  login: (identifier: string, password: string) => Promise<void>;
+  register: (email: string, username: string, password: string) => Promise<void>;
+  loginWithPasskey: () => Promise<void>;
+  logout: () => Promise<void>;
+  updateProfile: (input: { username?: string; email?: string; avatar?: string | null }) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
-
-function initialDocs(): KnowledgeDoc[] {
-  const stored = loadDocs();
-  if (stored && stored.length > 0) {
-    return stored;
-  }
-  return [createDemoDoc()];
-}
 
 /** 合并本地与服务端数据：同一会话取 updatedAt 较新的版本 */
 function mergeDocs(remote: KnowledgeDoc[], local: KnowledgeDoc[]): KnowledgeDoc[] {
@@ -82,11 +93,13 @@ function mergeDocs(remote: KnowledgeDoc[], local: KnowledgeDoc[]): KnowledgeDoc[
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [docs, setDocs] = useState<KnowledgeDoc[]>(initialDocs);
-  const [storedActiveId, setStoredActiveId] = useState<string | null>(() => loadActiveDocId());
+  const [docs, setDocs] = useState<KnowledgeDoc[]>(() => [createDemoDoc()]);
+  const [storedActiveId, setStoredActiveId] = useState<string | null>(null);
   const [offsetDays, setOffsetDays] = useState(0);
-  const [apiConfig, setApiConfig] = useState<ApiConfig | null>(() => loadApiConfig());
+  const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
   const [serverAi, setServerAi] = useState<ServerAiStatus | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [hydrated, setHydrated] = useState(false);
 
   const refreshServerAi = useCallback(async () => {
@@ -107,42 +120,115 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const activeDocId = activeDoc?.id ?? null;
 
-  // 从服务端数据库读取一次，与本地缓存合并，之后以较新的版本为准
+  /** 登录成功后加载该用户的数据：本地缓存 + 服务端数据库 */
+  const applyUser = useCallback(async (user: User) => {
+    setCurrentUser(user);
+    setApiConfig(loadApiConfig(user.id));
+    const local = loadDocs(user.id) ?? [];
+    const remote = await fetchSnapshot();
+    let next = local;
+    if (remote && remote.docs.length > 0) {
+      next = mergeDocs(remote.docs, local);
+    }
+    if (next.length === 0) {
+      next = [createDemoDoc()];
+    }
+    setDocs(next);
+    const activeId = remote?.activeDocId ?? loadActiveDocId(user.id) ?? next[0]?.id ?? null;
+    setStoredActiveId(activeId);
+    setHydrated(true);
+  }, []);
+
+  const clearUser = useCallback(() => {
+    setCurrentUser(null);
+    setApiConfig(null);
+    setDocs([createDemoDoc()]);
+    setStoredActiveId(null);
+    setHydrated(false);
+  }, []);
+
+  // 启动时恢复会话
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const remote = await fetchSnapshot();
+      const user = await apiMe();
       if (!alive) {
         return;
       }
-      if (remote && remote.docs.length > 0) {
-        setDocs((local) => mergeDocs(remote.docs, local));
-        if (remote.activeDocId) {
-          setStoredActiveId(remote.activeDocId);
-        }
+      if (user) {
+        await applyUser(user);
       }
-      setHydrated(true);
+      setAuthLoading(false);
     })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [applyUser]);
 
+  // 按用户落本地缓存
   useEffect(() => {
-    saveDocs(docs);
-    saveActiveDocId(activeDocId);
-  }, [docs, activeDocId]);
+    if (!currentUser) {
+      return;
+    }
+    saveDocs(currentUser.id, docs);
+    saveActiveDocId(currentUser.id, activeDocId);
+  }, [docs, activeDocId, currentUser]);
 
   // 防抖写回服务端数据库；后端不可用时仍保留 localStorage 兜底
   useEffect(() => {
-    if (!hydrated) {
+    if (!currentUser || !hydrated) {
       return;
     }
     const timer = window.setTimeout(() => {
       void pushSnapshot(docs, activeDocId);
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [docs, activeDocId, hydrated]);
+  }, [docs, activeDocId, currentUser, hydrated]);
+
+  const login = useCallback(
+    async (identifier: string, password: string) => {
+      const { user } = await apiLogin(identifier, password);
+      await applyUser(user);
+    },
+    [applyUser],
+  );
+
+  const register = useCallback(
+    async (email: string, username: string, password: string) => {
+      const { user } = await apiRegister({ email, username, password });
+      await applyUser(user);
+    },
+    [applyUser],
+  );
+
+  const loginWithPasskeyFn = useCallback(async () => {
+    const { user } = await loginWithPasskey();
+    await applyUser(user);
+  }, [applyUser]);
+
+  const logout = useCallback(async () => {
+    await apiLogout();
+    clearUser();
+  }, [clearUser]);
+
+  const updateProfile = useCallback(
+    async (input: { username?: string; email?: string; avatar?: string | null }) => {
+      const user = await apiUpdateProfile(input);
+      setCurrentUser(user);
+    },
+    [],
+  );
+
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    await apiChangePassword(currentPassword, newPassword);
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    const user = await apiMe();
+    if (user) {
+      setCurrentUser(user);
+    }
+  }, []);
 
   const setActiveDocId = useCallback((id: string) => {
     setStoredActiveId(id);
@@ -233,14 +319,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return DEMO_DOC_ID;
   }, []);
 
-  const updateApiConfig = useCallback((config: ApiConfig | null) => {
-    setApiConfig(config);
-    if (config) {
-      saveApiConfig(config);
-    } else {
-      clearApiConfig();
-    }
-  }, []);
+  const updateApiConfig = useCallback(
+    (config: ApiConfig | null) => {
+      setApiConfig(config);
+      if (currentUser) {
+        if (config) {
+          saveApiConfig(currentUser.id, config);
+        } else {
+          clearApiConfig(currentUser.id);
+        }
+      }
+    },
+    [currentUser],
+  );
 
   const apiReady = apiConfig !== null && validateApiConfig(apiConfig).ok;
   const serverAiReady = serverAi?.available === true;
@@ -258,6 +349,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       apiReady,
       serverAi,
       aiReady,
+      currentUser,
+      authLoading,
       refreshServerAi,
       setOffsetDays,
       setActiveDocId,
@@ -267,6 +360,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       reviewNode,
       resetDemo,
       updateApiConfig,
+      login,
+      register,
+      loginWithPasskey: loginWithPasskeyFn,
+      logout,
+      updateProfile,
+      changePassword,
+      refreshUser,
     }),
     [
       docs,
@@ -278,6 +378,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       apiReady,
       serverAi,
       aiReady,
+      currentUser,
+      authLoading,
       refreshServerAi,
       setActiveDocId,
       createDoc,
@@ -286,6 +388,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       reviewNode,
       resetDemo,
       updateApiConfig,
+      login,
+      register,
+      loginWithPasskeyFn,
+      logout,
+      updateProfile,
+      changePassword,
+      refreshUser,
     ],
   );
 
