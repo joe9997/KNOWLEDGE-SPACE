@@ -1090,6 +1090,51 @@ ul {
   color: var(--accent);
 }
 
+.server-ai {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 13px 15px;
+  border-radius: 13px;
+  border: 1px solid var(--line-strong);
+  background: var(--glass-bg-faint);
+}
+
+.server-ai__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-soft);
+}
+
+.server-ai__head > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.server-ai__head strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.server-ai__head .glass-button {
+  height: 32px;
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.server-ai .field__hint {
+  margin: 0;
+}
+
+.server-ai .form-message {
+  margin-top: 2px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

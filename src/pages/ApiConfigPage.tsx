@@ -9,11 +9,13 @@ import {
   Info,
   Loader2,
   PlugZap,
+  Server,
   ShieldCheck,
   Trash2,
 } from 'lucide-react';
 import { LiquidButton } from '../components/ui/LiquidButton';
 import { testConnection, validateApiConfig } from '../lib/llm';
+import { testServerConnection } from '../lib/serverAi';
 import type { ApiConfig } from '../lib/types';
 import { useApp } from '../state/AppStore';
 
@@ -44,7 +46,7 @@ interface Feedback {
 }
 
 export function ApiConfigPage() {
-  const { apiConfig, apiReady, updateApiConfig } = useApp();
+  const { apiConfig, apiReady, updateApiConfig, serverAi, refreshServerAi } = useApp();
   const initial = apiConfig ?? {
     provider: 'openai',
     apiKey: '',
@@ -57,6 +59,8 @@ export function ApiConfigPage() {
   const [model, setModel] = useState(initial.model);
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [serverTesting, setServerTesting] = useState(false);
+  const [serverFeedback, setServerFeedback] = useState<Feedback | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof ApiConfig, string>>>({});
 
@@ -104,6 +108,23 @@ export function ApiConfigPage() {
     }
   };
 
+  const handleServerTest = async () => {
+    setServerTesting(true);
+    setServerFeedback(null);
+    try {
+      const result = await testServerConnection();
+      setServerFeedback({ kind: 'success', message: result.message });
+    } catch (error) {
+      setServerFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setServerTesting(false);
+      await refreshServerAi();
+    }
+  };
+
   const saveConfig = () => {
     if (!validate()) {
       return;
@@ -145,12 +166,63 @@ export function ApiConfigPage() {
           </div>
         </div>
 
+        <div className="server-ai">
+          <div className="server-ai__head">
+            <Server size={15} aria-hidden="true" />
+            <strong>服务端 AI</strong>
+            <span className="config-state">
+              <span className={`config-state__dot ${serverAi?.available ? 'is-ready' : ''}`} />
+              {serverAi === null
+                ? '正在检测…'
+                : !serverAi.reachable
+                  ? '未连接后端'
+                  : serverAi.available
+                    ? `已启用 · ${serverAi.model}`
+                    : '已连接 · 未配置 Key'}
+            </span>
+            <button
+              type="button"
+              className="glass-button glass-button--quiet"
+              onClick={handleServerTest}
+              disabled={serverTesting}
+            >
+              {serverTesting ? (
+                <Loader2 size={14} className="spinner" />
+              ) : (
+                <PlugZap size={14} />
+              )}
+              {serverTesting ? '正在测试…' : serverAi?.available ? '测试服务端连接' : '重新检测'}
+            </button>
+          </div>
+          <p className="field__hint">
+            {serverAi === null
+              ? '正在检测本地后端…'
+              : !serverAi.reachable
+                ? '未检测到本地后端。运行 npm run dev:server（或 npm run dev:all）后点击「重新检测」；也可以继续使用下方自带 Key 模式。'
+                : serverAi.available
+                  ? 'AI 整理会优先经后端调用模型：API Key 只保存在服务端 .env，不进入浏览器，也不受目标服务的 CORS 限制。'
+                  : '后端已连接，但 .env 未配置 LLM_API_KEY（或缺少 LLM_BASE_URL / LLM_MODEL），填写后重启后端即可启用。'}
+          </p>
+          {serverFeedback && (
+            <div
+              className={`form-message is-${serverFeedback.kind}`}
+              role="status"
+              aria-live="polite"
+            >
+              {serverFeedback.kind === 'success' && <CheckCircle2 size={15} />}
+              {serverFeedback.kind === 'error' && <AlertTriangle size={15} />}
+              {serverFeedback.kind === 'info' && <Info size={15} />}
+              <span>{serverFeedback.message}</span>
+            </div>
+          )}
+        </div>
+
         <div className="security-note">
           <ShieldCheck size={15} aria-hidden="true" />
           <p>
-            密钥和材料会直接发送到你填写的模型服务。API Key 仅保存在当前标签页的
-            sessionStorage，关闭标签页即清除；不写入源码、localStorage，也不经过回源的服务器。
-            浏览器直连可能受目标服务的 CORS 限制，测试失败时会显示真实错误信息。
+            下方是「自带 Key」模式：密钥和材料由浏览器直接发送到你填写的模型服务，Key 只保存在当前标签页的
+            sessionStorage，关闭即清除，不写入源码或 localStorage。若上方服务端 AI 已启用，AI
+            整理会优先走本地后端，不读取这里的 Key；浏览器直连仍可能受目标服务 CORS 限制。
           </p>
         </div>
 
