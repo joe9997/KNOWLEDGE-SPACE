@@ -1,6 +1,6 @@
 export type ThemeMode = 'dark' | 'light';
 
-export type AppView = 'home' | 'new' | 'graph' | 'api' | 'assistant';
+export type AppView = 'home' | 'new' | 'graph' | 'settings' | 'assistant';
 
 export type Mastery = 0 | 1 | 2;
 
@@ -52,6 +52,16 @@ export interface ApiConfig {
 }
 
 export type ReviewGrade = 0 | 1 | 2;
+
+export interface User {
+  id: string;
+  email: string;
+  username: string;
+  avatar: string | null;
+  hasPassword: boolean;
+  hasPasskey: boolean;
+  createdAt: number;
+}
 
 export interface ExtractedNode {
   title: string;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarCheck2, Pencil, Plus, Search, Settings2, Sparkles, Trash2, X } from 'lucide-react';
+import { CalendarCheck2, LogOut, Pencil, Plus, Search, Settings2, Sparkles, Trash2, X } from 'lucide-react';
 import { OrbitMark } from '../OrbitMark';
 import { isDue } from '../../lib/review';
 import type { AppView, KnowledgeDoc } from '../../lib/types';
@@ -38,7 +38,7 @@ export function Sidebar({
   onOpenReview,
   onOpenDoc,
 }: SidebarProps) {
-  const { docs, activeDoc, activeDocId, now, setActiveDocId, apiReady, renameDoc, deleteDoc } =
+  const { docs, activeDoc, activeDocId, now, setActiveDocId, renameDoc, deleteDoc, currentUser, logout } =
     useApp();
   const [query, setQuery] = useState('');
   const [menu, setMenu] = useState<SessionMenuState | null>(null);
@@ -272,33 +272,62 @@ export function Sidebar({
             </span>
             <span className="review-entry__text">
               <strong>今日复习</strong>
-              <span>{activeDue > 0 ? '按到期顺序逐个复习' : '暂无到期节点'}</span>
             </span>
             <span className="review-entry__count">{activeDue}</span>
           </button>
 
-          <div className="sidebar__user">
-            <span className="avatar" aria-hidden="true">
-              回
-            </span>
-            <div className="sidebar__user-text">
-              <strong>本地学习者</strong>
-              <span>{apiReady ? '已配置 API · 仅存本标签页' : '本地体验 · 数据留在浏览器'}</span>
-            </div>
+          <div className="sidebar__user-area">
             <button
               type="button"
-              className="icon-button"
+              className="sidebar__user"
               onClick={() => {
-                onNavigate('api');
+                onNavigate('settings');
                 if (isMobile) {
                   onCloseMobile();
                 }
               }}
-              aria-label="API 设置"
-              title="API 设置"
+              title="用户设置"
             >
-              <Settings2 size={15} />
+              <span className="avatar" aria-hidden="true">
+                {currentUser?.avatar ? (
+                  <img src={currentUser.avatar} alt={currentUser.username} />
+                ) : (
+                  (currentUser?.username ?? '回').slice(0, 1).toUpperCase()
+                )}
+              </span>
+              <div className="sidebar__user-text">
+                <strong>{currentUser?.username ?? '未登录'}</strong>
+                <span>{currentUser?.email ?? '点击进入设置'}</span>
+              </div>
             </button>
+
+            <div className="sidebar__user-actions">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => {
+                  onNavigate('settings');
+                  if (isMobile) {
+                    onCloseMobile();
+                  }
+                }}
+                aria-label="设置"
+                title="设置"
+              >
+                <Settings2 size={15} />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => {
+                  void logout();
+                }}
+                aria-label="退出登录"
+                title="退出登录"
+              >
+                <LogOut size={15} />
+              </button>
+            </div>
           </div>
         </div>
       </aside>

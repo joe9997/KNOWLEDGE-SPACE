@@ -6,6 +6,21 @@ import type { NextFunction, Request, Response } from 'express';
 import { readServerConfig } from './config';
 import { chat, extractChunk, testConnection } from './ai';
 import type { ChatContent, ChatMessage } from './ai';
+import {
+  changePassword,
+  deleteSession,
+  loginWithPassword,
+  passkeyAuthenticationOptions,
+  passkeyRegistrationOptions,
+  registerUser,
+  removePasskey,
+  resolveSession,
+  toPublicUser,
+  updateProfile,
+  verifyPasskeyAuthentication,
+  verifyPasskeyRegistration,
+} from './auth';
+import type { UserRecord } from './auth';
 import { readSnapshot, sanitizeDocs, writeSnapshot } from './store';
 
 const MAX_CHUNK_CHARS = 4000;
@@ -42,6 +57,57 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const config = readServerConfig();
 const app = express();
 
+class HttpError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+interface AuthedRequest extends Request {
+  auth?: { user: UserRecord; token: string };
+}
+
+function webAuthnContext(req: Request): { rpID: string; origin: string } {
+  const origin = req.get('origin') ?? 'http://localhost:5173';
+  let rpID = 'localhost';
+  try {
+    rpID = new URL(origin).hostname;
+  } catch {
+    rpID = 'localhost';
+  }
+  return { rpID, origin };
+}
+
+async function requireAuth(req: AuthedRequest, res: Response, next: NextFunction): Promise<void> {
+  const header = req.headers.authorization;
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : '';
+  if (!token) {
+    res.status(401).json({ error: '请先登录' });
+    return;
+  }
+  const user = await resolveSession(token);
+  if (!user) {
+    res.status(401).json({ error: '登录已过期，请重新登录' });
+    return;
+  }
+  req.auth = { user, token };
+  next();
+}
+
+/** 把认证业务抛出的 Error 统一映射为 400 响应 */
+function asAuth(handler: (req: AuthedRequest, res: Response) => Promise<unknown>) {
+  return async (req: AuthedRequest, res: Response, next: NextFunction) => {
+    try {
+      await handler(req, res);
+    } catch (error) {
+      next(new HttpError(400, error instanceof Error ? error.message : String(error)));
+    }
+  };
+}
+
 app.disable('x-powered-by');
 app.use(express.json({ limit: '8mb' }));
 
@@ -56,12 +122,108 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-app.get('/api/data', async (_req, res) => {
-  const snapshot = await readSnapshot();
+// ---------- 认证 ----------
+app.post(
+  '/api/auth/register',
+  asAuth(async (req, res) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email : '';
+    const username = typeof req.body?.username === 'string' ? req.body.username : '';
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    res.json(await registerUser({ email, username, password }));
+  }),
+);
+
+app.post(
+  '/api/auth/login',
+  asAuth(async (req, res) => {
+    const identifier = typeof req.body?.identifier === 'string' ? req.body.identifier : '';
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    res.json(await loginWithPassword(identifier, password));
+  }),
+);
+
+app.post('/api/auth/logout', requireAuth, async (req: AuthedRequest, res: Response) => {
+  await deleteSession(req.auth!.token);
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', requireAuth, (req: AuthedRequest, res: Response) => {
+  res.json({ user: toPublicUser(req.auth!.user) });
+});
+
+app.put(
+  '/api/auth/profile',
+  requireAuth,
+  asAuth(async (req, res) => {
+    const user = await updateProfile(req.auth!.user.id, {
+      username: typeof req.body?.username === 'string' ? req.body.username : undefined,
+      email: typeof req.body?.email === 'string' ? req.body.email : undefined,
+      avatar: req.body?.avatar !== undefined ? req.body.avatar : undefined,
+    });
+    res.json({ user });
+  }),
+);
+
+app.post(
+  '/api/auth/password',
+  requireAuth,
+  asAuth(async (req, res) => {
+    const currentPassword =
+      typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
+    const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+    await changePassword(req.auth!.user.id, currentPassword, newPassword);
+    res.json({ ok: true });
+  }),
+);
+
+app.post(
+  '/api/auth/passkey/register-options',
+  requireAuth,
+  async (req: AuthedRequest, res: Response) => {
+    const { rpID } = webAuthnContext(req);
+    res.json(await passkeyRegistrationOptions(req.auth!.user, rpID));
+  },
+);
+
+app.post(
+  '/api/auth/passkey/register-verify',
+  requireAuth,
+  asAuth(async (req, res) => {
+    const { rpID, origin } = webAuthnContext(req);
+    await verifyPasskeyRegistration(req.auth!.user, req.body?.response, origin, rpID);
+    res.json({ ok: true });
+  }),
+);
+
+app.delete(
+  '/api/auth/passkey',
+  requireAuth,
+  asAuth(async (req, res) => {
+    await removePasskey(req.auth!.user.id);
+    res.json({ ok: true });
+  }),
+);
+
+app.post('/api/auth/passkey/login-options', async (req: Request, res: Response) => {
+  const { rpID } = webAuthnContext(req);
+  res.json(await passkeyAuthenticationOptions(rpID));
+});
+
+app.post(
+  '/api/auth/passkey/login-verify',
+  asAuth(async (req, res) => {
+    const { rpID, origin } = webAuthnContext(req);
+    res.json(await verifyPasskeyAuthentication(req.body?.response, origin, rpID));
+  }),
+);
+
+// ---------- 知识数据（按用户隔离） ----------
+app.get('/api/data', requireAuth, async (req: AuthedRequest, res: Response) => {
+  const snapshot = await readSnapshot(req.auth!.user.id);
   res.json(snapshot);
 });
 
-app.put('/api/data', async (req, res) => {
+app.put('/api/data', requireAuth, async (req: AuthedRequest, res: Response) => {
   const docs = sanitizeDocs(req.body?.docs);
   if (!docs) {
     res.status(400).json({ error: 'docs 必须是数组。' });
@@ -70,8 +232,8 @@ app.put('/api/data', async (req, res) => {
   const activeDocId =
     typeof req.body?.activeDocId === 'string' ? req.body.activeDocId : null;
   const snapshot = { docs, activeDocId, updatedAt: Date.now() };
-  await writeSnapshot(snapshot);
-  console.log(`[store] 已保存 ${docs.length} 个会话`);
+  await writeSnapshot(req.auth!.user.id, snapshot);
+  console.log(`[store] 已保存 ${docs.length} 个会话 · 用户 ${req.auth!.user.id}`);
   res.json({ ok: true, updatedAt: snapshot.updatedAt });
 });
 
@@ -95,7 +257,7 @@ app.post('/api/ai/test', async (_req: Request, res: Response) => {
   }
 });
 
-app.post('/api/ai/chat', async (req: Request, res: Response) => {
+app.post('/api/ai/chat', requireAuth, async (req: AuthedRequest, res: Response) => {
   if (!config.ai) {
     res.status(503).json({ error: '服务端未配置 LLM_API_KEY，请在 .env 中填写后重启服务。' });
     return;
@@ -134,7 +296,7 @@ app.post('/api/ai/chat', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/ai/extract', async (req: Request, res: Response) => {
+app.post('/api/ai/extract', requireAuth, async (req: AuthedRequest, res: Response) => {
   if (!config.ai) {
     res.status(503).json({ error: '服务端未配置 LLM_API_KEY，请在 .env 中填写后重启服务。' });
     return;
