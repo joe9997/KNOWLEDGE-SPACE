@@ -92,8 +92,8 @@ git push -u origin feat/your-thing
 
 Settings：
 
-1. **General → Danger Zone**：确认 **Private**（已经设好，别手滑改 public）。
-2. **Branches → Add branch protection rule**，分支名 `main`：
+1. **General → Danger Zone**：确认 **Private**（已设好，别手滑改 public）。
+2. **Branches → Branch protection rules**，分支名 `main`：
    - ✅ Require a pull request before merging
    - ✅ Require approvals = **1**
    - ✅ Dismiss stale approvals when new commits are pushed
@@ -101,14 +101,18 @@ Settings：
    - ✅ Require conversation resolution before merging
    - ✅ Do not allow bypassing the above settings（含管理员）
    - ❌ 不勾 Allow force pushes / Allow deletions
-3. **General → Pull Requests**：只留 **Allow squash merging**。
-4. **Collaborators and teams**：只有 6 个账号，权限一律 **Write**。管理员 1–2 人。
-   - 有人离组：立刻在 Collaborators 里 Remove，历史提交不受影响。
-5. **Actions → General → Workflow permissions**：选 *Read and write*（Pages 部署要）。
-6. **Pages → Source**：选 **GitHub Actions**。
 
-> Private 仓库的 Pages 需要 GitHub Pro / Team 套餐；个人免费账号在 private 仓库上
-> 开启 Pages 会提示升级。没有套餐就把 Pages 当可选——本地 `npm run dev` 一样能看效果。
+   > ⚠️ 免费账号的 Private 仓库点不开分支保护（GitHub 会提示升级）。
+   > 两个选择：① 升级 GitHub Pro（约 $4/月）解锁；② 暂时不开，靠本文件的约定 + 群里互相提醒。
+   > 无论哪种，「不直接 push main」这条都要守住。
+3. **General → Pull Requests**：只留 **Allow squash merging**（已配好），并开了合并后自动删分支。
+4. **Collaborators and teams**：只有 6 个账号，权限一律 **Write**。管理员 1–2 人。
+   - 有人离组：立刻 Remove，历史提交不受影响。
+5. **Actions → General → Workflow permissions**：选 *Read and write*（Pages 部署要）。
+6. **Pages → Source**：选 **GitHub Actions**（需要 Pro / Team 套餐）。
+
+> Private 仓库的 Pages 需要付费套餐。`deploy-pages.yml` 已改成**只有手动触发**，
+> 在套餐可用前不会因为每次 push 而报失败。
 
 ---
 

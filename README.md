@@ -28,6 +28,32 @@ npm run preview
 npm test
 ```
 
+## 团队协作（6 人）
+
+仓库是 **Private**，只有项目组的 6 个 GitHub 账号能访问。
+
+`main` 是受保护分支，**任何人都不直接 push**，一切改动走分支 + PR：
+
+```bash
+git switch main && git pull --rebase
+git switch -c feat/your-thing
+# 改代码
+npm test && npm run build
+git add -p && git commit -m "feat(graph): 支持滚轮缩放"
+git push -u origin feat/your-thing
+```
+
+GitHub 上开 PR → CI 绿 → 1 人 Approve → Squash merge（自动删分支）。
+
+完整的约定（提交规范、按目录分工、公共文件归属、冲突与锁文件处理、评审清单）
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。**首次加入请先读它。**
+
+| 自动化 | 位置 |
+| --- | --- |
+| CI：`npm test` + `npm run build` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| 发布：手动触发部署 Pages | [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) |
+| PR / Issue 模板、CODEOWNERS | `.github/` |
+
 ## 已实现
 
 - **首页**：夜间环形星轨、日间高山日光照片背景；悬浮玻璃侧栏、继续探索与今日待复习卡片、演示时间切换；主标题逐字模糊浮现。
