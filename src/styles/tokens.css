@@ -1,7 +1,7 @@
 /* 主题令牌：深色为深海军蓝，浅色为雾蓝珍珠玻璃（独立设计，不是反色） */
 :root {
-  --font-serif: 'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', Georgia,
-    serif;
+  --font-serif: 'Inter', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui, -apple-system,
+    'Segoe UI', sans-serif;
   --font-sans: 'Inter', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui, -apple-system,
     'Segoe UI', sans-serif;
 
@@ -57,7 +57,12 @@
   --input-border: rgba(168, 202, 255, 0.2);
   --scrim: rgba(2, 6, 14, 0.62);
 
-  --sidebar-active: linear-gradient(90deg, rgba(122, 180, 255, 0.2), rgba(122, 180, 255, 0.035));
+  --sidebar-active: linear-gradient(
+    100deg,
+    rgba(96, 165, 250, 0.26) 0%,
+    rgba(129, 140, 248, 0.14) 52%,
+    rgba(56, 189, 248, 0.06) 100%
+  );
   --label-bg: rgba(7, 17, 35, 0.62);
   --label-border: rgba(176, 209, 255, 0.16);
 
@@ -133,7 +138,12 @@
   --input-border: rgba(255, 255, 255, 0.85);
   --scrim: rgba(37, 60, 88, 0.34);
 
-  --sidebar-active: linear-gradient(90deg, rgba(255, 255, 255, 0.92), rgba(208, 230, 253, 0.5));
+  --sidebar-active: linear-gradient(
+    100deg,
+    rgba(59, 130, 246, 0.16) 0%,
+    rgba(129, 140, 248, 0.1) 52%,
+    rgba(14, 165, 233, 0.04) 100%
+  );
   --label-bg: rgba(255, 255, 255, 0.74);
   --label-border: rgba(255, 255, 255, 0.8);
 

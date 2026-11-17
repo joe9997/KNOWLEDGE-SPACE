@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarCheck2, Plus, Search, Settings2, X } from 'lucide-react';
 import { OrbitMark } from '../OrbitMark';
-import { LiquidButton } from '../ui/LiquidButton';
 import { isDue } from '../../lib/review';
 import type { AppView, KnowledgeDoc } from '../../lib/types';
 import { useApp } from '../../state/AppStore';
@@ -90,10 +89,15 @@ export function Sidebar({
           </button>
         </div>
 
-        <LiquidButton width="100%" height={44} onClick={onNewSession} ariaLabel="新建会话">
-          <Plus size={15} strokeWidth={1.8} />
+        <button
+          type="button"
+          className="new-session-button"
+          onClick={onNewSession}
+          aria-label="新建会话"
+        >
+          <Plus size={16} strokeWidth={2} aria-hidden="true" />
           新会话
-        </LiquidButton>
+        </button>
 
         <label className="search-field">
           <Search size={14} aria-hidden="true" />

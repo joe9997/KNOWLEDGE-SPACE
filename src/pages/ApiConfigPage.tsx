@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import type { FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { FormEvent, KeyboardEvent } from 'react';
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   ChevronDown,
   Eye,
@@ -10,7 +11,6 @@ import {
   Loader2,
   PlugZap,
   Server,
-  ShieldCheck,
   Trash2,
 } from 'lucide-react';
 import { LiquidButton } from '../components/ui/LiquidButton';
@@ -43,6 +43,133 @@ const PROVIDERS = [
 interface Feedback {
   kind: 'success' | 'error' | 'info';
   message: string;
+}
+
+interface ProviderSelectProps {
+  value: string;
+  onChange: (id: string) => void;
+}
+
+function ProviderSelect({ value, onChange }: ProviderSelectProps) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selectedIndex = Math.max(
+    0,
+    PROVIDERS.findIndex((item) => item.id === value),
+  );
+  const selected = PROVIDERS[selectedIndex];
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    return () => document.removeEventListener('mousedown', closeOnOutside);
+  }, [open]);
+
+  const openMenu = () => {
+    setActiveIndex(selectedIndex);
+    setOpen(true);
+  };
+
+  const choose = (id: string) => {
+    onChange(id);
+    setOpen(false);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!open) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openMenu();
+      }
+      return;
+    }
+    switch (event.key) {
+      case 'Escape':
+        event.preventDefault();
+        setOpen(false);
+        break;
+      case 'ArrowDown':
+        event.preventDefault();
+        setActiveIndex((index) => (index + 1) % PROVIDERS.length);
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        setActiveIndex((index) => (index - 1 + PROVIDERS.length) % PROVIDERS.length);
+        break;
+      case 'Home':
+        event.preventDefault();
+        setActiveIndex(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        setActiveIndex(PROVIDERS.length - 1);
+        break;
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        choose(PROVIDERS[activeIndex].id);
+        break;
+      default:
+        break;
+    }
+  };
+
+  return (
+    <div className="glass-select" ref={rootRef}>
+      <button
+        type="button"
+        id="api-provider"
+        className="glass-select__trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={`模型服务：${selected.label}`}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        onKeyDown={handleKeyDown}
+      >
+        <span>{selected.label}</span>
+        <ChevronDown size={14} className="glass-select__chevron" aria-hidden="true" />
+      </button>
+
+      {open && (
+        <ul
+          className="glass-select__menu"
+          role="listbox"
+          aria-label="模型服务"
+          aria-activedescendant={`provider-option-${PROVIDERS[activeIndex].id}`}
+        >
+          {PROVIDERS.map((item, index) => (
+            <li
+              key={item.id}
+              id={`provider-option-${item.id}`}
+              role="option"
+              aria-selected={item.id === value}
+              className={[
+                'glass-select__option',
+                index === activeIndex ? 'is-active' : '',
+                item.id === value ? 'is-selected' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              onMouseEnter={() => setActiveIndex(index)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => choose(item.id)}
+            >
+              <span>{item.label}</span>
+              {item.id === value && <Check size={13} aria-hidden="true" />}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export function ApiConfigPage() {
@@ -217,35 +344,11 @@ export function ApiConfigPage() {
           )}
         </div>
 
-        <div className="security-note">
-          <ShieldCheck size={15} aria-hidden="true" />
-          <p>
-            下方是「自带 Key」模式：密钥和材料由浏览器直接发送到你填写的模型服务，Key 只保存在当前标签页的
-            sessionStorage，关闭即清除，不写入源码或 localStorage。若上方服务端 AI 已启用，AI
-            整理会优先走本地后端，不读取这里的 Key；浏览器直连仍可能受目标服务 CORS 限制。
-          </p>
-        </div>
-
         <form onSubmit={handleSave} noValidate>
           <div className="form-grid">
             <div className="field">
               <label htmlFor="api-provider">模型服务</label>
-              <div className="field__control">
-                <select
-                  id="api-provider"
-                  value={provider}
-                  onChange={(event) => applyProvider(event.target.value)}
-                >
-                  {PROVIDERS.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <span className="field__select-arrow">
-                  <ChevronDown size={14} />
-                </span>
-              </div>
+              <ProviderSelect value={provider} onChange={applyProvider} />
             </div>
 
             <div className="field">
