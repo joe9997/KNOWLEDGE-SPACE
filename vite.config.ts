@@ -8,5 +8,9 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
+    proxy: {
+      // 本地后端（npm run dev:server）默认监听 3001
+      '/api': 'http://127.0.0.1:3001',
+    },
   },
 });

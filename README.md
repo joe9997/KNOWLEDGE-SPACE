@@ -2,7 +2,7 @@
 
 把一段讲义变成一片彼此连接的知识星空。每个节点都能回到原文那一句，按掌握程度自测，并按间隔复习只推今天该记的内容。
 
-本项目是**纯前端**实现：React 19 + TypeScript + Vite。没有后端、账号系统或数据库，文档与复习进度保存在浏览器本地，API Key 只存在当前标签页的 `sessionStorage`。
+本项目是 React 19 + TypeScript + Vite 前端，加一个可选的 Node 后端（`server/`，Express）。后端负责托管模型 Key 并代理 AI 调用；不启动后端时，前端仍可独立运行，文档与复习进度照旧保存在浏览器本地。API Key 在服务端模式下只存在于 `.env`，在自带 Key 模式下只存在于当前标签页的 `sessionStorage`。
 
 ## 快速开始
 
@@ -14,6 +14,18 @@ npm run dev
 ```
 
 终端会打印实际访问地址（若 5173 被占用，Vite 会自动使用下一个可用端口）。
+
+### 启用服务端 AI（可选，推荐）
+
+后端默认监听 `127.0.0.1:3001`，Vite 已把 `/api` 代理过去。
+
+```bash
+copy .env.example .env   # macOS / Linux 用 cp
+# 编辑 .env：填写 LLM_API_KEY、LLM_BASE_URL、LLM_MODEL
+npm run dev:all          # 同时启动前端（5173）与后端（3001）
+```
+
+只想起后端：`npm run dev:server`；生产构建后单进程运行：`npm run build && npm start`。
 
 生产构建与本地预览：
 
@@ -96,11 +108,38 @@ GitHub 上开 PR → CI 绿 → 1 人 Approve → Squash merge（自动删分支
 | 当前会话 | `localStorage` | 重新打开仍保留 |
 | 主题 | `localStorage`（`huiyuan.theme`） | 重新打开仍保留 |
 | API 配置与 Key | `sessionStorage`（`huiyuan.api.session.v1`） | 仅当前标签页，关闭即清除 |
+| 服务端模型 Key | `.env`（仅后端进程读取） | 不返回浏览器，不写入日志 |
 | 演示时间偏移 | 内存状态 | 刷新后回到今天 |
 
-- API Key **不会**写入源码、`localStorage` 或任何服务器；也不会被提交进仓库。
-- 配置 API 后，材料会由浏览器**直接发送到你填写的模型服务**。使用者需自行确认该服务的隐私政策。
+- 自带 Key 模式的 API Key **不会**写入源码或 `localStorage`，只留在当前标签页的 `sessionStorage`；服务端模式的 Key 只在 `.env` 中，由后端进程读取。
+- 服务端模式：材料会发送到本地后端，再由后端转发到 `.env` 配置的模型服务；自带 Key 模式：材料由浏览器**直接发送到你填写的模型服务**。使用者需自行确认该服务的隐私政策。
 - 示例材料「证据法讲义 · 证明责任」在侧栏、页面头部与导出内容中均标注为「体验材料」。
+
+## 后端（服务端托管 AI）
+
+`server/` 是一个最小的 Express 服务，目前只做模型调用中转（不含账号与数据库）：
+
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| GET | `/api/health` | 健康检查，返回 AI 是否已配置 |
+| GET | `/api/ai/status` | 前端读取服务端模型状态（不返回 Key） |
+| POST | `/api/ai/test` | 用服务端配置请求 `/models` 测试连接 |
+| POST | `/api/ai/extract` | 接收单个文本块（≤ 4000 字），调用模型并返回解析后的节点 |
+
+环境变量（`.env`，参考 `.env.example`）：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `LLM_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI 兼容服务地址 |
+| `LLM_API_KEY` | 空 | 为空时服务端 AI 不可用 |
+| `LLM_MODEL` | `deepseek-chat` | 模型名称 |
+| `PORT` | `3001` | 后端端口 |
+| `LLM_TIMEOUT_MS` | `90000` | 单块抽取超时 |
+
+- 服务只监听 `127.0.0.1`，Key 不会返回给浏览器，也不会写入日志。
+- 分块、进度与跨块去重仍由前端完成（每块一次请求），「已处理 x/n 块」照常实时显示。
+- 未启动后端或未配置 Key 时，前端自动回退到「自带 Key 浏览器直连」模式。
+- 同一份抽取规则（Prompt、解析、合并、引用校验）在 `src/lib/extractCore.ts` 共享，前后端不会各写一套。
 
 ## API 接入
 
@@ -113,6 +152,7 @@ GitHub 上开 PR → CI 绿 → 1 人 Approve → Squash merge（自动删分支
 
 行为：
 
+- **服务端优先**：只要 `/api/ai/status` 返回已配置，AI 整理就走本地后端，页面上方会显示「服务端 AI · 已启用」并提供独立的测试连接按钮。
 - **测试连接**：`GET {baseUrl}/models`。只有 HTTP 200 且返回 JSON 模型列表 `data[]` 才算成功；否则展示真实 HTTP 状态、响应片段、CORS / 网络错误或「返回 200 但不是 JSON」。不会伪造成功。
 - **生成节点**：`POST {baseUrl}/chat/completions`，按 800 字 / 100 字重叠分块，逐块调用并展示 `已处理 x/n 块` 进度。
 - 浏览器直连受目标服务的 CORS 策略限制；失败时页面会显示实际错误，而不是降级成假数据。
@@ -178,6 +218,10 @@ grade 2 → mastery=2, goodStreak++, +round(3 * 1.6 ** goodStreak) 天
 ## 目录结构
 
 ```text
+server/
+  index.ts                              # Express 路由、静态托管、错误处理
+  ai.ts                                 # 服务端模型调用与连接测试
+  config.ts                             # .env 读取与配置校验
 src/
   components/
     background/StarfieldBackground.tsx  # 夜间星轨 + 日间山景与光点
@@ -194,7 +238,9 @@ src/
     quotes.ts                           # 逐字 / 归一化引用匹配
     review.ts                           # 简化 SM-2
     localExtract.ts                     # 本地规则整理
-    llm.ts                              # API 校验、分块、调用与解析
+    extractCore.ts                      # 前后端共享：分块、Prompt、解析、合并
+    llm.ts                              # 自带 Key：API 校验与浏览器直连
+    serverAi.ts                         # 服务端模式：状态、测试连接、逐块抽取
     starfield.ts                        # 绘制、尺寸限制、重绘调度
     storage.ts, exportMarkdown.ts       # 本地存储、Markdown 导出
   pages/                                # 首页 / 新建会话 / 知识网络 / 接入 API
@@ -222,21 +268,23 @@ src/
 - 手机端无横向溢出、关闭的抽屉无法获得键盘焦点、原文面板与图例可用；
 - `prefers-reduced-motion` 下星轨动画停止。
 
-未使用真实 API Key 进行外部模型调用验证；成功路径通过拦截的 OpenAI 兼容响应做了端到端验证。
+未使用真实 API Key 进行外部模型调用验证；浏览器直连的成功路径通过拦截的 OpenAI 兼容响应做了端到端验证。后端新增接口（`/api/health`、`/api/ai/status`、`/api/ai/test`、`/api/ai/extract`）用本地 mock 的 OpenAI 兼容服务验证了完整链路：API 页显示「已启用 · mock-chat」、测试连接成功、AI 整理生成可溯源节点。
 
 ## 素材说明
 
 - 日间背景照片来自 Unsplash 免费图库，已下载到 `public/assets/day-alpine.jpg`，运行时不依赖外部图片服务。
 - 图标来自 `lucide-react`；液态玻璃效果来自 `liquid-glass-react`。
 
-## 前端边界（尚未接入的后端功能）
+## 后端边界
 
-已实现全部前端交互与本地数据逻辑。以下属于原 PRD 的服务端能力，本项目**未实现**：
+已实现：服务端模型 Key 托管、连接测试、单块抽取中转、本地静态托管。
+
+仍未实现：
 
 - 账号、登录、多设备同步；
 - 服务端持久化（Postgres / Supabase）与文档上传；
-- 服务端异步抽取任务、重试队列与进度接口；
+- 服务端异步抽取任务、重试队列与整篇进度接口；
 - pgvector 句子切分与相似度兜底（≥ 0.75）；
-- 服务端 LLM 中转、API Key 托管、限流与配额；
+- 限流与配额、多租户 Key 管理；
 - PDF / 图片 OCR、多人协作、分享广场；
-- 部署与公网访问（本次只交付可本地运行的源码）。
+- 部署与公网访问（后端默认只监听 `127.0.0.1`）。

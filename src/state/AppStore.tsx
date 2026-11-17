@@ -27,6 +27,8 @@ import type {
   ReviewGrade,
 } from '../lib/types';
 import { validateApiConfig } from '../lib/llm';
+import { getServerAiStatus } from '../lib/serverAi';
+import type { ServerAiStatus } from '../lib/serverAi';
 
 interface CreateDocInput {
   title: string;
@@ -43,6 +45,9 @@ interface AppContextValue {
   offsetDays: number;
   apiConfig: ApiConfig | null;
   apiReady: boolean;
+  serverAi: ServerAiStatus | null;
+  aiReady: boolean;
+  refreshServerAi: () => Promise<void>;
   setOffsetDays: (days: number) => void;
   setActiveDocId: (id: string) => void;
   createDoc: (input: CreateDocInput) => string;
@@ -66,6 +71,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [storedActiveId, setStoredActiveId] = useState<string | null>(() => loadActiveDocId());
   const [offsetDays, setOffsetDays] = useState(0);
   const [apiConfig, setApiConfig] = useState<ApiConfig | null>(() => loadApiConfig());
+  const [serverAi, setServerAi] = useState<ServerAiStatus | null>(null);
+
+  const refreshServerAi = useCallback(async () => {
+    try {
+      setServerAi(await getServerAiStatus());
+    } catch {
+      setServerAi({ reachable: false, available: false, model: null, baseUrl: null });
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshServerAi();
+  }, [refreshServerAi]);
 
   const activeDoc = useMemo(() => {
     return docs.find((doc) => doc.id === storedActiveId) ?? docs[0] ?? null;
@@ -157,6 +175,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const apiReady = apiConfig !== null && validateApiConfig(apiConfig).ok;
+  const serverAiReady = serverAi?.available === true;
+  const aiReady = serverAiReady || apiReady;
   const now = Date.now() + offsetDays * DAY_MS;
 
   const value = useMemo<AppContextValue>(
@@ -168,6 +188,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       offsetDays,
       apiConfig,
       apiReady,
+      serverAi,
+      aiReady,
+      refreshServerAi,
       setOffsetDays,
       setActiveDocId,
       createDoc,
@@ -183,6 +206,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       offsetDays,
       apiConfig,
       apiReady,
+      serverAi,
+      aiReady,
+      refreshServerAi,
       setActiveDocId,
       createDoc,
       reviewNode,

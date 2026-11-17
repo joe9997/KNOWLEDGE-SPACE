@@ -10,6 +10,7 @@ import {
 import { LiquidButton } from '../ui/LiquidButton';
 import { extractLocally, toKnowledgeNodes } from '../../lib/localExtract';
 import { extractWithAI, type ExtractionProgress } from '../../lib/llm';
+import { extractWithServer } from '../../lib/serverAi';
 import { useApp } from '../../state/AppStore';
 
 const MAX_CHARS = 20_000;
@@ -29,7 +30,8 @@ function deriveTitle(text: string): string {
 }
 
 export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
-  const { apiReady, apiConfig, createDoc } = useApp();
+  const { apiReady, apiConfig, createDoc, serverAi, aiReady } = useApp();
+  const viaServer = serverAi?.available === true;
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [titleTouched, setTitleTouched] = useState(false);
@@ -111,8 +113,8 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
     if (!ensureText()) {
       return;
     }
-    if (!apiReady || !apiConfig) {
-      setError('还没有配置 API。可以先使用本地规则整理，或前往「接入 API」完成配置。');
+    if (!aiReady) {
+      setError('还没有可用的模型服务。可以先使用本地规则整理，或前往「接入 API」完成配置。');
       return;
     }
     setWorking('ai');
@@ -121,12 +123,15 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const extracted = await extractWithAI(
-        apiConfig,
-        text,
-        (next) => setProgress(next),
-        controller.signal,
-      );
+      const onProgress = (next: ExtractionProgress) => setProgress(next);
+      let extracted;
+      if (viaServer) {
+        extracted = await extractWithServer(text, onProgress, controller.signal);
+      } else if (apiConfig) {
+        extracted = await extractWithAI(apiConfig, text, onProgress, controller.signal);
+      } else {
+        throw new Error('API 配置不完整，请前往「接入 API」补全后再试。');
+      }
       const nodes = toKnowledgeNodes(extracted, text);
       if (nodes.length === 0) {
         throw new Error('模型返回了内容，但没有可用的节点。');
@@ -251,10 +256,15 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
 
       <div className="intake-actions">
         <span className="intake-api-hint">
-          {apiReady ? (
+          {viaServer ? (
             <>
               <Sparkles size={12} />
-              已配置 {apiConfig?.model}，AI 整理会发送原文到该服务
+              服务端已托管 {serverAi?.model}，AI 整理经后端调用，Key 不进入浏览器
+            </>
+          ) : apiReady ? (
+            <>
+              <Sparkles size={12} />
+              已配置 {apiConfig?.model}，AI 整理会由浏览器直连该服务
             </>
           ) : (
             <>
@@ -281,7 +291,7 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
           width={166}
           height={46}
           onClick={handleAI}
-          disabled={!apiReady || working !== null || text.trim().length < 20}
+          disabled={!aiReady || working !== null || text.trim().length < 20}
           ariaLabel="用 AI 整理材料"
         >
           {working === 'ai' ? (
