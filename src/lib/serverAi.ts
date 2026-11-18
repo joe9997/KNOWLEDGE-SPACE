@@ -1,4 +1,4 @@
-import { getToken } from './auth';
+import { apiFetch } from './auth';
 import type { ExtractedNode } from './types';
 import { chunkText, mergeExtractions } from './extractCore';
 import type { ExtractionProgress } from './llm';
@@ -43,7 +43,7 @@ function networkError(error: unknown): Error {
 }
 
 export async function getServerAiStatus(): Promise<ServerAiStatus> {
-  const response = await fetch('/api/ai/status');
+  const response = await apiFetch('/api/ai/status');
   if (!response.ok) {
     throw new Error(await readApiError(response));
   }
@@ -59,7 +59,7 @@ export async function getServerAiStatus(): Promise<ServerAiStatus> {
 export async function testServerConnection(): Promise<{ count: number; message: string }> {
   let response: Response;
   try {
-    response = await fetch('/api/ai/test', { method: 'POST' });
+    response = await apiFetch('/api/ai/test', { method: 'POST' });
   } catch (error) {
     throw networkError(error);
   }
@@ -83,13 +83,9 @@ export async function extractWithServer(
   try {
     for (let i = 0; i < chunks.length; i += 1) {
       onProgress?.({ done: i, total: chunks.length });
-      const token = getToken();
-      const response = await fetch('/api/ai/extract', {
+      const response = await apiFetch('/api/ai/extract', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: chunks[i].text }),
         signal,
       });

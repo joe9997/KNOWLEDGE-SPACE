@@ -207,8 +207,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [applyUser]);
 
   const logout = useCallback(async () => {
-    await apiLogout();
-    clearUser();
+    try {
+      await apiLogout();
+    } finally {
+      clearUser();
+    }
   }, [clearUser]);
 
   const updateProfile = useCallback(

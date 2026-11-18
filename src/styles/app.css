@@ -1539,20 +1539,6 @@ ul {
   overflow-wrap: anywhere;
 }
 
-.field__link {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  cursor: pointer;
-}
-
-.field__link:hover {
-  color: var(--accent-bright);
-  text-decoration: underline;
-}
-
 .field__error {
   font-size: 10.5px;
   color: var(--danger);
@@ -3348,27 +3334,6 @@ ul {
   white-space: pre-wrap;
 }
 
-.assistant-chat__caret {
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  margin-left: 2px;
-  vertical-align: -0.1em;
-  background: var(--accent);
-  border-radius: 1px;
-  animation: assistant-caret 1s steps(2, start) infinite;
-}
-
-@keyframes assistant-caret {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0;
-  }
-}
-
 .assistant-chat__bubble-files {
   display: flex;
   flex-direction: column;
@@ -3848,14 +3813,31 @@ ul {
   align-items: center;
   gap: 12px;
   margin-bottom: 20px;
-  filter: drop-shadow(0 0 16px var(--accent-glow));
+}
+
+.auth-modal__logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(140deg, var(--accent-deep), #8a76ff);
+  box-shadow: 0 6px 18px var(--accent-glow);
 }
 
 .auth-modal__brand h1 {
   font-family: var(--font-serif);
-  font-size: 22px;
-  letter-spacing: 0.16em;
+  font-size: 20px;
+  letter-spacing: 0.14em;
   line-height: 1.1;
+}
+
+.auth-modal__brand p {
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: var(--text-faint);
 }
 
 .auth-tabs {
@@ -3869,9 +3851,6 @@ ul {
 }
 
 .auth-tabs button {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
   height: 36px;
   border: 0;
   border-radius: 9px;
@@ -3883,16 +3862,8 @@ ul {
 }
 
 .auth-tabs button.is-active {
-  background:
-    radial-gradient(circle at 34% 22%, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0) 62%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.52));
-  color: #16324f;
-  box-shadow:
-    0 6px 14px rgba(10, 30, 60, 0.14),
-    inset 0 1px 0 #ffffff,
-    inset 0 -4px 8px rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  background: var(--glass-bg-soft);
+  color: var(--text);
 }
 
 .auth-form {
@@ -3943,47 +3914,25 @@ ul {
 }
 
 .auth-submit {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   height: 42px;
-  border: 1px solid rgba(255, 255, 255, 0.9);
+  border: 0;
   border-radius: 999px;
-  color: #16324f;
+  color: #fff;
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  background:
-    radial-gradient(circle at 32% 20%, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0) 62%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.5));
-  box-shadow:
-    0 10px 24px rgba(10, 30, 60, 0.16),
-    inset 0 2px 3px rgba(255, 255, 255, 0.95),
-    inset 0 -8px 16px rgba(255, 255, 255, 0.6),
-    inset 0 0 12px rgba(255, 255, 255, 0.35);
-  backdrop-filter: blur(14px) saturate(180%);
-  -webkit-backdrop-filter: blur(14px) saturate(180%);
-  transition:
-    transform var(--transition-fast),
-    box-shadow var(--transition-fast),
-    filter var(--transition-fast);
+  background: linear-gradient(140deg, var(--accent-deep), #8a76ff);
+  box-shadow: 0 8px 20px var(--accent-glow);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .auth-submit:hover:not(:disabled) {
   transform: translateY(-1px);
-  filter: brightness(1.06);
-  box-shadow:
-    0 14px 30px rgba(10, 30, 60, 0.2),
-    0 0 20px var(--accent-glow),
-    inset 0 1px 0 #ffffff;
-}
-
-.auth-submit:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
+  box-shadow: 0 12px 26px var(--accent-glow);
 }
 
 .auth-submit:disabled {
@@ -3992,69 +3941,23 @@ ul {
 }
 
 .auth-passkey {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   height: 40px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--glass-border-strong);
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0) 64%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.24));
-  color: #1c3550;
+  background: var(--glass-bg-soft);
+  color: var(--text-soft);
   font-size: 13px;
   cursor: pointer;
-  backdrop-filter: blur(12px) saturate(170%);
-  -webkit-backdrop-filter: blur(12px) saturate(170%);
-  box-shadow:
-    0 6px 16px rgba(10, 30, 60, 0.12),
-    inset 0 2px 3px rgba(255, 255, 255, 0.9),
-    inset 0 -6px 12px rgba(255, 255, 255, 0.45);
-  transition:
-    transform var(--transition-fast),
-    box-shadow var(--transition-fast),
-    filter var(--transition-fast);
-}
-
-/* 液态玻璃：高光随悬停整体位移，形成玻璃内部的流动折射 */
-.auth-submit::before,
-.auth-passkey::before,
-.auth-tabs button::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  background:
-    radial-gradient(95% 75% at 26% 6%, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0) 54%),
-    radial-gradient(85% 65% at 76% 104%, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 64%);
-  opacity: 0;
-  transition:
-    transform 460ms cubic-bezier(0.33, 0, 0.25, 1),
-    opacity 300ms ease;
-}
-
-.auth-submit::before,
-.auth-passkey::before,
-.auth-tabs button.is-active::before {
-  opacity: 1;
-}
-
-.auth-submit:hover:not(:disabled)::before,
-.auth-passkey:hover:not(:disabled)::before {
-  transform: translate(7%, -9%) scale(1.08);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .auth-passkey:hover:not(:disabled) {
-  transform: translateY(-1px);
-  filter: brightness(1.08);
-  box-shadow:
-    0 10px 22px rgba(10, 30, 60, 0.16),
-    inset 0 1px 0 #ffffff;
+  background: var(--glass-bg);
+  color: var(--text);
 }
 
 .auth-passkey:disabled {

@@ -3,10 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import { readServerConfig } from './config';
-import type { AiConfig } from './config';
-import { chat, chatStream, extractChunk, testConnection } from './ai';
-import type { ChatContent, ChatMessage } from './ai';
+import { readServerConfig } from './config.ts';
+import { chat, extractChunk, testConnection } from './ai.ts';
+import type { ChatContent, ChatMessage } from './ai.ts';
 import {
   changePassword,
   deleteSession,
@@ -20,9 +19,10 @@ import {
   updateProfile,
   verifyPasskeyAuthentication,
   verifyPasskeyRegistration,
-} from './auth';
-import type { UserRecord } from './auth';
-import { readSnapshot, sanitizeDocs, writeSnapshot } from './store';
+} from './auth.ts';
+import type { UserRecord } from './auth.ts';
+import { rateLimit } from './ratelimit.ts';
+import { readSnapshot, sanitizeDocs, validateDocsPayload, writeSnapshot } from './store.ts';
 
 const MAX_CHUNK_CHARS = 4000;
 const MAX_CHAT_CONTEXT = 8000;
@@ -59,11 +59,10 @@ const config = readServerConfig();
 const app = express();
 
 class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
+  status: number;
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
   }
 }
 
@@ -98,19 +97,50 @@ async function requireAuth(req: AuthedRequest, res: Response, next: NextFunction
   next();
 }
 
-/** 把认证业务抛出的 Error 统一映射为 400 响应 */
+/** 把认证业务抛出的 Error 统一映射为 400；存储类错误保留 503，细节只进日志 */
 function asAuth(handler: (req: AuthedRequest, res: Response) => Promise<unknown>) {
   return async (req: AuthedRequest, res: Response, next: NextFunction) => {
     try {
       await handler(req, res);
     } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status && status >= 500) {
+        console.error(`[auth] ${error instanceof Error ? error.message : String(error)}`);
+        next(new HttpError(status, '服务暂时不可用，请稍后重试。'));
+        return;
+      }
       next(new HttpError(400, error instanceof Error ? error.message : String(error)));
     }
   };
 }
 
 app.disable('x-powered-by');
+// Vercel / 反向代理后面才能拿到真实客户端 IP，否则限流会把所有人算成同一个 IP
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '8mb' }));
+
+// ---------- 限流（进程内计数，单实例有效；多实例需换 Redis） ----------
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: '登录尝试过于频繁，请 15 分钟后再试。',
+});
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: '注册过于频繁，请稍后再试。',
+});
+const passkeyLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 20,
+  message: 'passkey 请求过于频繁，请稍后再试。',
+});
+const aiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  key: (req) => (req as AuthedRequest).auth?.user.id ?? req.ip ?? 'unknown',
+  message: '模型调用过于频繁，请稍后再试。',
+});
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -126,6 +156,7 @@ app.get('/api/health', (_req, res) => {
 // ---------- 认证 ----------
 app.post(
   '/api/auth/register',
+  registerLimiter,
   asAuth(async (req, res) => {
     const email = typeof req.body?.email === 'string' ? req.body.email : '';
     const username = typeof req.body?.username === 'string' ? req.body.username : '';
@@ -136,6 +167,7 @@ app.post(
 
 app.post(
   '/api/auth/login',
+  loginLimiter,
   asAuth(async (req, res) => {
     const identifier = typeof req.body?.identifier === 'string' ? req.body.identifier : '';
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
@@ -172,7 +204,7 @@ app.post(
     const currentPassword =
       typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
     const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
-    await changePassword(req.auth!.user.id, currentPassword, newPassword);
+    await changePassword(req.auth!.user.id, currentPassword, newPassword, req.auth!.token);
     res.json({ ok: true });
   }),
 );
@@ -180,6 +212,7 @@ app.post(
 app.post(
   '/api/auth/passkey/register-options',
   requireAuth,
+  passkeyLimiter,
   async (req: AuthedRequest, res: Response) => {
     const { rpID } = webAuthnContext(req);
     res.json(await passkeyRegistrationOptions(req.auth!.user, rpID));
@@ -189,6 +222,7 @@ app.post(
 app.post(
   '/api/auth/passkey/register-verify',
   requireAuth,
+  passkeyLimiter,
   asAuth(async (req, res) => {
     const { rpID, origin } = webAuthnContext(req);
     await verifyPasskeyRegistration(req.auth!.user, req.body?.response, origin, rpID);
@@ -205,13 +239,14 @@ app.delete(
   }),
 );
 
-app.post('/api/auth/passkey/login-options', async (req: Request, res: Response) => {
+app.post('/api/auth/passkey/login-options', passkeyLimiter, async (req: Request, res: Response) => {
   const { rpID } = webAuthnContext(req);
   res.json(await passkeyAuthenticationOptions(rpID));
 });
 
 app.post(
   '/api/auth/passkey/login-verify',
+  passkeyLimiter,
   asAuth(async (req, res) => {
     const { rpID, origin } = webAuthnContext(req);
     res.json(await verifyPasskeyAuthentication(req.body?.response, origin, rpID));
@@ -225,6 +260,11 @@ app.get('/api/data', requireAuth, async (req: AuthedRequest, res: Response) => {
 });
 
 app.put('/api/data', requireAuth, async (req: AuthedRequest, res: Response) => {
+  const limitError = validateDocsPayload(req.body?.docs);
+  if (limitError) {
+    res.status(400).json({ error: limitError });
+    return;
+  }
   const docs = sanitizeDocs(req.body?.docs);
   if (!docs) {
     res.status(400).json({ error: 'docs 必须是数组。' });
@@ -233,39 +273,22 @@ app.put('/api/data', requireAuth, async (req: AuthedRequest, res: Response) => {
   const activeDocId =
     typeof req.body?.activeDocId === 'string' ? req.body.activeDocId : null;
   const snapshot = { docs, activeDocId, updatedAt: Date.now() };
+  // 写失败会抛 StoreError（503），不会再出现「返回 200 但没存上」
   await writeSnapshot(req.auth!.user.id, snapshot);
   console.log(`[store] 已保存 ${docs.length} 个会话 · 用户 ${req.auth!.user.id}`);
   res.json({ ok: true, updatedAt: snapshot.updatedAt });
 });
 
-/** 用户自带配置：格式可用才采用，否则回退到服务端配置 */
-function readUserAiConfig(raw: unknown): AiConfig | null {
-  if (!raw || typeof raw !== 'object') {
-    return null;
-  }
-  const item = raw as Record<string, unknown>;
-  const baseUrl = typeof item.baseUrl === 'string' ? item.baseUrl.trim().replace(/\/+$/, '') : '';
-  const apiKey = typeof item.apiKey === 'string' ? item.apiKey.trim() : '';
-  const model = typeof item.model === 'string' ? item.model.trim() : '';
-  if (!baseUrl || !apiKey || !model || !/^https?:\/\/[^\s]+$/i.test(baseUrl)) {
-    return null;
-  }
-  return { baseUrl, apiKey, model };
-}
-
-const NO_AI_MESSAGE = '尚未配置 AI，请先在设置中填写 API Key。';
-
-app.get('/api/ai/status', (_req, res) => {
-  res.json({
+app.get('/api/ai/status', (_req, res) => {  res.json({
     available: Boolean(config.ai),
     model: config.ai?.model ?? null,
     baseUrl: config.ai?.baseUrl ?? null,
   });
 });
 
-app.post('/api/ai/test', async (_req: Request, res: Response) => {
+app.post('/api/ai/test', requireAuth, aiLimiter, async (_req: Request, res: Response) => {
   if (!config.ai) {
-    res.status(503).json({ error: NO_AI_MESSAGE });
+    res.status(503).json({ error: '服务端未配置 LLM_API_KEY，请在 .env 中填写后重启服务。' });
     return;
   }
   try {
@@ -276,28 +299,27 @@ app.post('/api/ai/test', async (_req: Request, res: Response) => {
   }
 });
 
-function parseChatMessages(
-  rawBody: unknown,
-): { messages: ChatMessage[]; context: string } | null {
-  const body = (rawBody ?? {}) as Record<string, unknown>;
-  const rawMessages = Array.isArray(body.messages) ? body.messages : [];
+app.post('/api/ai/chat', requireAuth, aiLimiter, async (req: AuthedRequest, res: Response) => {
+  if (!config.ai) {
+    res.status(503).json({ error: '服务端未配置 LLM_API_KEY，请在 .env 中填写后重启服务。' });
+    return;
+  }
+  const rawMessages = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const messages: ChatMessage[] = [];
   for (const item of rawMessages.slice(-MAX_CHAT_MESSAGES)) {
-    const role = (item as { role?: unknown })?.role;
-    const content = sanitizeChatContent((item as { content?: unknown })?.content);
+    const role = item?.role;
+    const content = sanitizeChatContent(item?.content);
     if ((role === 'user' || role === 'assistant') && content) {
       messages.push({ role, content });
     }
   }
   if (messages.length === 0 || messages[messages.length - 1]?.role !== 'user') {
-    return null;
+    res.status(400).json({ error: '请求缺少有效的 user 消息。' });
+    return;
   }
-  const context = typeof body.context === 'string' ? body.context.slice(0, MAX_CHAT_CONTEXT) : '';
-  return { messages, context };
-}
-
-function buildSystemMessage(context: string): ChatMessage {
-  return {
+  const context =
+    typeof req.body?.context === 'string' ? req.body.context.slice(0, MAX_CHAT_CONTEXT) : '';
+  const system: ChatMessage = {
     role: 'system',
     content: [
       '你是「回源」的知识学习助手，帮助用户理解当前会话中的材料。',
@@ -305,27 +327,9 @@ function buildSystemMessage(context: string): ChatMessage {
       context ? `当前会话材料：\n${context}` : '当前没有打开具体会话，可做通用学习答疑。',
     ].join('\n'),
   };
-}
-
-app.post('/api/ai/chat', requireAuth, async (req: AuthedRequest, res: Response) => {
-  // 用户自带 Key 优先，其次使用 .env 里的服务端配置
-  const ai = readUserAiConfig(req.body?.config) ?? config.ai;
-  if (!ai) {
-    res.status(503).json({ error: NO_AI_MESSAGE });
-    return;
-  }
-  const parsed = parseChatMessages(req.body);
-  if (!parsed) {
-    res.status(400).json({ error: '请求缺少有效的 user 消息。' });
-    return;
-  }
   try {
-    const reply = await chat(
-      ai,
-      [buildSystemMessage(parsed.context), ...parsed.messages],
-      config.extractTimeoutMs,
-    );
-    console.log(`[ai] chat ok · ${parsed.messages.length} 条消息`);
+    const reply = await chat(config.ai, [system, ...messages], config.extractTimeoutMs);
+    console.log(`[ai] chat ok · ${messages.length} 条消息`);
     res.json({ reply });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -334,60 +338,9 @@ app.post('/api/ai/chat', requireAuth, async (req: AuthedRequest, res: Response) 
   }
 });
 
-app.post('/api/ai/chat/stream', requireAuth, async (req: AuthedRequest, res: Response) => {
-  const ai = readUserAiConfig(req.body?.config) ?? config.ai;
-  if (!ai) {
-    res.status(503).json({ error: NO_AI_MESSAGE });
-    return;
-  }
-  const parsed = parseChatMessages(req.body);
-  if (!parsed) {
-    res.status(400).json({ error: '请求缺少有效的 user 消息。' });
-    return;
-  }
-
-  res.status(200);
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
-
-  const send = (payload: unknown) => {
-    res.write(`data: ${JSON.stringify(payload)}\n\n`);
-  };
-  const controller = new AbortController();
-  res.on('close', () => {
-    if (!res.writableEnded) {
-      controller.abort();
-    }
-  });
-
-  try {
-    const reply = await chatStream(
-      ai,
-      [buildSystemMessage(parsed.context), ...parsed.messages],
-      config.extractTimeoutMs,
-      (delta) => send({ delta }),
-      controller.signal,
-    );
-    send({ done: true });
-    console.log(`[ai] chat stream ok · ${reply.length} 字`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!controller.signal.aborted) {
-      send({ error: message });
-    }
-    console.warn(`[ai] chat stream failed · ${message}`);
-  } finally {
-    res.end();
-  }
-});
-
-app.post('/api/ai/extract', requireAuth, async (req: AuthedRequest, res: Response) => {
-  const ai = readUserAiConfig(req.body?.config) ?? config.ai;
-  if (!ai) {
-    res.status(503).json({ error: NO_AI_MESSAGE });
+app.post('/api/ai/extract', requireAuth, aiLimiter, async (req: AuthedRequest, res: Response) => {
+  if (!config.ai) {
+    res.status(503).json({ error: '服务端未配置 LLM_API_KEY，请在 .env 中填写后重启服务。' });
     return;
   }
   const text = typeof req.body?.text === 'string' ? req.body.text : '';
@@ -400,7 +353,7 @@ app.post('/api/ai/extract', requireAuth, async (req: AuthedRequest, res: Respons
     return;
   }
   try {
-    const nodes = await extractChunk(ai, text, config.extractTimeoutMs);
+    const nodes = await extractChunk(config.ai, text, config.extractTimeoutMs);
     console.log(`[ai] extract ok · ${text.length} 字 · ${nodes.length} 个节点`);
     res.json({ nodes });
   } catch (error) {
@@ -432,15 +385,23 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     return;
   }
   const status = (error as { status?: number }).status ?? 500;
+  const detail = (error as { detail?: string }).detail;
+  if (detail) {
+    console.error(`[api] ${detail}`);
+  }
   const message = error instanceof Error ? error.message : '服务端未知错误。';
   res.status(status).json({ error: message });
 });
 
-app.listen(config.port, '127.0.0.1', () => {
-  console.log(`[api] http://127.0.0.1:${config.port}`);
-  console.log(
-    config.ai
-      ? `[ai] 已配置 · ${config.ai.model} · ${config.ai.baseUrl}`
-      : '[ai] 未配置 · 使用者可在设置中填写自己的 API Key',
-  );
-});
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(config.port, '127.0.0.1', () => {
+    console.log(`[api] http://127.0.0.1:${config.port}`);
+    console.log(
+      config.ai
+        ? `[ai] configured · ${config.ai.model} · ${config.ai.baseUrl}`
+        : '[ai] not configured · copy .env.example to .env and fill LLM_API_KEY',
+    );
+  });
+}
