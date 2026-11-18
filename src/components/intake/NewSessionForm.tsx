@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { LiquidButton } from '../ui/LiquidButton';
 import { extractLocally, toKnowledgeNodes } from '../../lib/localExtract';
+import { extractFileText, FILE_ACCEPT } from '../../lib/fileText';
 import { extractWithAI, type ExtractionProgress } from '../../lib/llm';
 import { extractWithServer } from '../../lib/serverAi';
 import { useApp } from '../../state/AppStore';
@@ -53,26 +54,29 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
   }, []);
 
   const loadFile = async (file: File) => {
-    if (!/\.(txt|md|markdown)$/i.test(file.name)) {
-      setError('仅支持 .txt 或 .md 文件。');
+    if (file.size > 20 * 1024 * 1024) {
+      setError(`${file.name} 超过 20MB，请先拆分或压缩后再导入。`);
       return;
     }
     setWorking('file');
     setError(null);
     try {
-      const content = (await file.text()).replace(/\r\n/g, '\n');
-      if (content.length > MAX_CHARS) {
-        setError(
-          `文件包含 ${content.length.toLocaleString()} 字，超过 20,000 字上限。请裁剪后再导入。`,
-        );
+      const { text: content, chars, truncated } = await extractFileText(file, MAX_CHARS);
+      if (!content.trim()) {
+        setError('没有从文件中读到文字，请检查文件内容后重试。');
         return;
       }
       setText(content);
       if (!titleTouched) {
         setTitle(deriveTitle(content));
       }
-    } catch {
-      setError('读取文件失败，请确认文件编码为 UTF-8 后重试。');
+      if (truncated) {
+        setError(
+          `文件共 ${chars.toLocaleString()} 字，已截取前 ${MAX_CHARS.toLocaleString()} 字导入。`,
+        );
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '读取文件失败，请重试。');
     } finally {
       setWorking(null);
     }
@@ -168,7 +172,7 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
         className={`dropzone ${dragging ? 'is-dragging' : ''}`.trim()}
         role="button"
         tabIndex={0}
-        aria-label="选择或拖入 .txt / .md 文件"
+        aria-label="选择或拖入 PDF / Word / 文本文件"
         onClick={() => fileInputRef.current?.click()}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -192,12 +196,12 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
         </span>
         <span className="dropzone__text">
           {working === 'file' ? '正在读取文件…' : '拖入或选择文件'}
-          <span>支持 .txt / .md · 最多 20,000 字</span>
+          <span>支持 PDF / Word / 文本 · 最多 20,000 字</span>
         </span>
         <input
           ref={fileInputRef}
           type="file"
-          accept=".txt,.md,text/plain,text/markdown"
+          accept={FILE_ACCEPT}
           tabIndex={-1}
           aria-hidden="true"
           onChange={(event) => {

@@ -27,7 +27,7 @@ import { readSnapshot, sanitizeDocs, writeSnapshot } from './store';
 const MAX_CHUNK_CHARS = 4000;
 const MAX_CHAT_CONTEXT = 8000;
 const MAX_CHAT_MESSAGES = 24;
-const MAX_CHAT_TEXT = 12000;
+const MAX_CHAT_TEXT = 40000;
 
 function sanitizeChatContent(raw: unknown): ChatContent | null {
   if (typeof raw === 'string') {

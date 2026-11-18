@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowUp, FileText, Image as ImageIcon, Plus, X } from 'lucide-react';
 import type { KnowledgeDoc } from '../../lib/types';
 import { validateApiConfig } from '../../lib/llm';
+import { detectFileKind, extractFileText, FILE_ACCEPT } from '../../lib/fileText';
 import { useApp } from '../../state/AppStore';
 import {
   buildDocContext,
@@ -46,8 +47,9 @@ interface ChatEntry {
 
 const PANEL_MARGIN = 10;
 const MAX_FILES = 3;
-const MAX_TEXT_CHARS = 8000;
+const MAX_TEXT_CHARS = 10000;
 const MAX_TEXT_SIZE = 2 * 1024 * 1024;
+const MAX_DOC_SIZE = 20 * 1024 * 1024;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -87,20 +89,26 @@ async function toAttachment(file: File): Promise<Attachment> {
     }
     return { id, name: file.name, kind: 'image', image: await compressImage(file) };
   }
-  const isText =
-    file.type.startsWith('text/') || /\.(txt|md|markdown|csv|json|log)$/i.test(file.name);
-  if (!isText) {
-    throw new Error(`${file.name} 不是可读取的文本或图片`);
+  const kind = detectFileKind(file);
+  const limit = kind === 'text' ? MAX_TEXT_SIZE : MAX_DOC_SIZE;
+  if (file.size > limit) {
+    throw new Error(`${file.name} 超过 ${Math.round(limit / 1024 / 1024)}MB`);
   }
-  if (file.size > MAX_TEXT_SIZE) {
-    throw new Error(`${file.name} 超过 2MB`);
+  try {
+    const { text, truncated } = await extractFileText(file, MAX_TEXT_CHARS);
+    if (!text.trim()) {
+      throw new Error('没有读到文字，可能是扫描版 PDF，请改用图片上传');
+    }
+    return {
+      id,
+      name: file.name,
+      kind: 'text',
+      text: truncated ? `${text}\n\n[内容较长，已截断]` : text,
+    };
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`${file.name}：${message}`);
   }
-  return {
-    id,
-    name: file.name,
-    kind: 'text',
-    text: (await file.text()).slice(0, MAX_TEXT_CHARS),
-  };
 }
 
 export function AssistantChat({
@@ -357,7 +365,7 @@ export function AssistantChat({
           <div className="assistant-chat__empty">
             <p>
               {variant === 'page'
-                ? '可以问任何会话里的概念，也可以上传材料让我读。'
+                ? '可以问任何会话里的概念，也可以上传 PDF、Word、图片或文本让我读。'
                 : '基于当前会话提问，材料里没有的内容会直接说明。'}
             </p>
             <div className="assistant-chat__hints">
@@ -415,7 +423,11 @@ export function AssistantChat({
           </div>
         )}
 
-        {error && <div className="assistant-chat__error">{error}</div>}
+        {error && (
+          <div className="assistant-chat__error" role="alert">
+            {error}
+          </div>
+        )}
       </div>
 
       {attachments.length > 0 && (
@@ -486,7 +498,10 @@ export function AssistantChat({
                 }}
               >
                 <FileText size={13} />
-                上传文件
+                <span className="assistant-chat__attach-label">
+                  上传文件
+                  <small>PDF / Word / 文本</small>
+                </span>
               </button>
             </div>
           )}
@@ -505,7 +520,7 @@ export function AssistantChat({
             ref={fileRef}
             type="file"
             multiple
-            accept=".txt,.md,.markdown,.csv,.json,.log,text/*"
+            accept={FILE_ACCEPT}
             className="assistant-chat__file-input"
             onChange={(event) => {
               void addFiles(event.target.files);
