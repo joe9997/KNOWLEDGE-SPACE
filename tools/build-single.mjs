@@ -57,6 +57,19 @@ html = html.replace(
 );
 
 // 2) 内联 CSS（先把 public 目录里的图片转成 base64）
+//
+// 转义：JS/CSS 里可能出现 "</script" / "</style" 字面量（React 的 key 转义常量里就有
+// "</body>"），直接塞进 <script>/<style> 会让 HTML 解析器提前闭合标签、整页白屏。
+// 在 JS 字符串 / 正则里 "<\/script" 与 "</script" 等价，所以这层转义是安全的。
+const escapeScript = (s) => s.replace(/<\/script/gi, '<\\/script');
+const escapeStyle = (s) => s.replace(/<\/style/gi, '<\\/style');
+
+// 只替换文件末尾那一个 </body>：内联进 JS 之后，文档里会多出别的 </body> 字面量
+const insertBeforeBodyEnd = (doc, chunk) => {
+  const i = doc.lastIndexOf('</body>');
+  return i >= 0 ? doc.slice(0, i) + chunk + doc.slice(i) : doc + chunk;
+};
+
 const toDataUri = (file) => {
   if (!existsSync(file)) return null;
   const ext = path.extname(file).slice(1).toLowerCase();
@@ -81,7 +94,7 @@ html = html.replace(
         `url(${dayAlpine})`,
       );
     }
-    return `<style>\n${css}\n</style>`;
+    return `<style>\n${escapeStyle(css)}\n</style>`;
   },
 );
 
@@ -98,11 +111,24 @@ html = html.replace(
 
 // 5) 把 JS 放到 </body> 前，确保 #root 已经存在
 if (scripts.length) {
-  const inline = scripts.map((code) => `<script>\n${code}\n</script>`).join('\n');
-  html = html.includes('</body>')
-    ? html.replace('</body>', `${inline}\n</body>`)
-    : html + inline;
+  const inline = scripts
+    .map((code) => `<script>\n${escapeScript(code)}\n</script>`)
+    .join('\n');
+  html = insertBeforeBodyEnd(html, `${inline}\n`);
 }
+
+// 6) file:// 打开时贴一条横幅：单文件版不含后端，登录必然失败
+//    只在空环境下生效，不影响 npm run dev / Pages 线上版
+const offlineNotice = `<script>
+(function () {
+  if (location.protocol !== 'file:') return;
+  var bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2147483647;padding:10px 16px;font:13px/1.7 system-ui,-apple-system,"Microsoft YaHei",sans-serif;background:#7c2d12;color:#fff;text-align:center;box-shadow:0 -2px 12px rgba(0,0,0,.35)';
+  bar.innerHTML = '离线单文件版：<b>只打包了前端，没有后端，登录不会成功</b>。要看完整功能请运行 <code style="background:rgba(255,255,255,.18);padding:1px 5px;border-radius:4px">npm run dev:all</code> 后访问 http://127.0.0.1:5173';
+  document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(bar); });
+})();
+</script>`;
+html = insertBeforeBodyEnd(html, `${offlineNotice}\n`);
 
 const outFile = path.join(root, finalName);
 writeFileSync(outFile, html, 'utf8');
