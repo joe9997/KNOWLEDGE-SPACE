@@ -1,5 +1,5 @@
-import type { ExtractedNode } from './types';
-import { findQuote } from './quotes';
+import type { ExtractedNode } from './types.ts';
+import { findQuote } from './quotes.ts';
 
 export const CHUNK_SIZE = 800;
 export const CHUNK_OVERLAP = 100;
