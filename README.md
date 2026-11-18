@@ -40,14 +40,25 @@ npm run preview
 npm test
 ```
 
-## 不装 Node 也能看：双击 `KNOWLEDGE-SPACE.html`
+## 三种打开方式
 
-仓库根目录的 **`KNOWLEDGE-SPACE.html`**（约 880 KB）是整个网页的**单文件离线版**：
-JS、CSS、字体、背景图全部内联在这一个文件里，没有任何外部请求。
+| 方式 | 地址 / 操作 | 适合 |
+| --- | --- | --- |
+| **在线版** | https://joe9997.github.io/KNOWLEDGE-SPACE/ | 手机、平板、发给别人，点开就用 |
+| **单文件离线版** | 下载仓库根目录的 `KNOWLEDGE-SPACE.html` 后双击 | 没网、要拷 U 盘、要发给不用电脑的人 |
+| **本地开发** | `npm install && npm run dev` | 改代码 |
 
-- **双击就能打开**，不需要 Node、不需要联网、不需要起服务器。
-- 深色 / 浅色主题、知识网络、自测复习、Markdown 导出、API 配置全部可用；
-  数据照常存在浏览器的 `localStorage` / `sessionStorage` 里。
+### 单文件离线版 `KNOWLEDGE-SPACE.html`
+
+约 960 KB，JS、CSS、背景图全部内联在这一个文件里，没有任何外部请求。
+**双击就能打开**，不需要 Node、不需要联网、不需要起服务器。
+
+> ⚠️ 当前版本引入了后端与账号（`server/`，Passkey / 密码登录、服务端 AI 抽取）。
+> 单文件版**只打包了前端**，所以双击后看到的是登录界面，无法真正登录。
+> 要看完整功能，请用 `npm install && npm run dev:all`（前端 5173 + 后端 3001）。
+> 离线版仍然可以用来查看界面、走查样式、在没网的机器上演示外观。
+
+- 深色 / 浅色主题、知识网络、自测复习、Markdown 导出都能渲染。
 - 发微信、发邮件、拷到 U 盘给同学，都是这一个文件。
 
 需要重新生成时（改了 UI 之后）：
@@ -64,7 +75,8 @@ npm run build:single
 
 ## 团队协作（6 人）
 
-仓库是 **Private**，只有项目组的 6 个 GitHub 账号能访问。
+仓库是 **Public**（https://github.com/joe9997/KNOWLEDGE-SPACE ）：任何人可以查看和 fork，
+但**只有项目组的 6 个账号有推送权限**。
 
 `main` 是受保护分支，**任何人都不直接 push**，一切改动走分支 + PR：
 
@@ -85,8 +97,10 @@ GitHub 上开 PR → CI 绿 → 1 人 Approve → Squash merge（自动删分支
 | 自动化 | 位置 |
 | --- | --- |
 | CI：`npm test` + `npm run build` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
-| 发布：手动触发部署 Pages | [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) |
+| 发布：合并进 main 自动部署 Pages | [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) |
 | PR / Issue 模板、CODEOWNERS | `.github/` |
+
+在线地址：**https://joe9997.github.io/KNOWLEDGE-SPACE/**
 
 ## 已实现
 
