@@ -1,6 +1,6 @@
-import type { ExtractedNode } from '../src/lib/types.ts';
-import { PROMPT, SYSTEM_PROMPT, parseExtraction } from '../src/lib/extractCore.ts';
-import type { AiConfig } from './config.ts';
+import type { ExtractedNode } from '../src/lib/types';
+import { PROMPT, SYSTEM_PROMPT, parseExtraction } from '../src/lib/extractCore';
+import type { AiConfig } from './config';
 
 const TEST_TIMEOUT_MS = 20_000;
 
@@ -117,6 +117,94 @@ export async function chat(
     throw new Error('模型返回为空或格式不可识别。');
   }
   return content.trim();
+}
+
+/** 多轮问答（流式）：逐段回调增量文本，返回完整回复。 */
+export async function chatStream(
+  config: AiConfig,
+  messages: ChatMessage[],
+  timeoutMs: number,
+  onDelta: (text: string) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${config.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.model,
+          temperature: 0.5,
+          stream: true,
+          messages,
+        }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw requestError(error);
+    }
+    if (!response.ok) {
+      throw new Error(`模型调用失败 · ${await readDetail(response)}`);
+    }
+    if (!response.body) {
+      throw new Error('模型未返回流式响应。');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let full = '';
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() ?? '';
+      for (const event of events) {
+        for (const line of event.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) {
+            continue;
+          }
+          const payload = trimmed.slice(5).trim();
+          if (!payload || payload === '[DONE]') {
+            continue;
+          }
+          try {
+            const json = JSON.parse(payload) as {
+              choices?: Array<{ delta?: { content?: unknown } }>;
+            };
+            const delta = json.choices?.[0]?.delta?.content;
+            if (typeof delta === 'string' && delta) {
+              full += delta;
+              onDelta(delta);
+            }
+          } catch {
+            // 兼容个别服务商的心跳/非 JSON 行
+          }
+        }
+      }
+    }
+
+    if (!full.trim()) {
+      throw new Error('模型返回为空或格式不可识别。');
+    }
+    return full;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 /** 对单个文本块调用模型并解析成节点；失败时抛出带真实原因的 Error。 */

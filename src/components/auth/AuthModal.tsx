@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { Fingerprint, Loader2, Lock, Mail, Sparkles, UserRound } from 'lucide-react';
+import { Fingerprint, Loader2, Lock, Mail, UserRound } from 'lucide-react';
+import { OrbitMark } from '../OrbitMark';
 import { useApp } from '../../state/AppStore';
 import { passkeySupported } from '../../lib/auth';
 
@@ -57,13 +58,8 @@ export function AuthModal() {
     <div className="auth-overlay" role="dialog" aria-modal="true" aria-label="登录">
       <div className="auth-modal glass-panel">
         <div className="auth-modal__brand">
-          <span className="auth-modal__logo">
-            <Sparkles size={18} />
-          </span>
-          <div>
-            <h1>回源</h1>
-            <p>KNOWLEDGE SPACE</p>
-          </div>
+          <OrbitMark size={40} />
+          <h1>回源</h1>
         </div>
 
         <div className="auth-tabs" role="tablist">

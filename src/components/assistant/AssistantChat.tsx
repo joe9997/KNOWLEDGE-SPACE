@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowUp, FileText, Image as ImageIcon, Plus, X } from 'lucide-react';
 import type { KnowledgeDoc } from '../../lib/types';
+import { validateApiConfig } from '../../lib/llm';
+import { detectFileKind, extractFileText, FILE_ACCEPT } from '../../lib/fileText';
+import { useApp } from '../../state/AppStore';
 import {
   buildDocContext,
-  requestAssistantReply,
+  requestAssistantReplyStream,
   type ChatContentPart,
   type OutgoingChatMessage,
 } from '../../lib/assistant';
@@ -44,8 +47,9 @@ interface ChatEntry {
 
 const PANEL_MARGIN = 10;
 const MAX_FILES = 3;
-const MAX_TEXT_CHARS = 8000;
+const MAX_TEXT_CHARS = 10000;
 const MAX_TEXT_SIZE = 2 * 1024 * 1024;
+const MAX_DOC_SIZE = 20 * 1024 * 1024;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -85,20 +89,26 @@ async function toAttachment(file: File): Promise<Attachment> {
     }
     return { id, name: file.name, kind: 'image', image: await compressImage(file) };
   }
-  const isText =
-    file.type.startsWith('text/') || /\.(txt|md|markdown|csv|json|log)$/i.test(file.name);
-  if (!isText) {
-    throw new Error(`${file.name} 不是可读取的文本或图片`);
+  const kind = detectFileKind(file);
+  const limit = kind === 'text' ? MAX_TEXT_SIZE : MAX_DOC_SIZE;
+  if (file.size > limit) {
+    throw new Error(`${file.name} 超过 ${Math.round(limit / 1024 / 1024)}MB`);
   }
-  if (file.size > MAX_TEXT_SIZE) {
-    throw new Error(`${file.name} 超过 2MB`);
+  try {
+    const { text, truncated } = await extractFileText(file, MAX_TEXT_CHARS);
+    if (!text.trim()) {
+      throw new Error('没有读到文字，可能是扫描版 PDF，请改用图片上传');
+    }
+    return {
+      id,
+      name: file.name,
+      kind: 'text',
+      text: truncated ? `${text}\n\n[内容较长，已截断]` : text,
+    };
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`${file.name}：${message}`);
   }
-  return {
-    id,
-    name: file.name,
-    kind: 'text',
-    text: (await file.text()).slice(0, MAX_TEXT_CHARS),
-  };
 }
 
 export function AssistantChat({
@@ -107,6 +117,7 @@ export function AssistantChat({
   onClose,
   variant = 'popover',
 }: AssistantChatProps) {
+  const { apiConfig } = useApp();
   const panelRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const attachRef = useRef<HTMLDivElement>(null);
@@ -277,20 +288,40 @@ export function AssistantChat({
       { role: 'user', content: outgoing },
     ];
 
-    setMessages(next);
+    setMessages([...next, { role: 'assistant', content: '' }]);
     setInput('');
     setAttachments([]);
     setError(null);
     setLoading(true);
+    let acc = '';
     try {
-      const reply = await requestAssistantReply(history, buildDocContext(doc));
+      const userConfig =
+        apiConfig && validateApiConfig(apiConfig).ok ? apiConfig : null;
+      const reply = await requestAssistantReplyStream(
+        history,
+        buildDocContext(doc),
+        userConfig,
+        (delta) => {
+          acc += delta;
+          setMessages([...next, { role: 'assistant', content: acc }]);
+        },
+      );
       setMessages([...next, { role: 'assistant', content: reply }]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (!(cause instanceof DOMException && cause.name === 'AbortError')) {
+        if (!acc) {
+          setMessages(next);
+        }
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  const lastMessage = messages[messages.length - 1];
+  const streamingIdle =
+    loading && (!lastMessage || lastMessage.role !== 'assistant' || !lastMessage.content);
 
   return (
     <section
@@ -334,7 +365,7 @@ export function AssistantChat({
           <div className="assistant-chat__empty">
             <p>
               {variant === 'page'
-                ? '可以问任何会话里的概念，也可以上传材料让我读。'
+                ? '可以问任何会话里的概念，也可以上传 PDF、Word、图片或文本让我读。'
                 : '基于当前会话提问，材料里没有的内容会直接说明。'}
             </p>
             <div className="assistant-chat__hints">
@@ -347,30 +378,44 @@ export function AssistantChat({
           </div>
         )}
 
-        {messages.map((message, index) => (
-          <div
-            key={`${message.role}-${index}`}
-            className={`assistant-chat__bubble assistant-chat__bubble--${message.role}`}
-          >
-            {message.content && <span className="assistant-chat__bubble-text">{message.content}</span>}
-            {message.files && message.files.length > 0 && (
-              <div className="assistant-chat__bubble-files">
-                {message.files.map((file) => (
-                  <span key={file.name} className="assistant-chat__bubble-file">
-                    {file.preview ? (
-                      <img src={file.preview} alt={file.name} />
-                    ) : (
-                      <FileText size={13} />
-                    )}
-                    <span>{file.name}</span>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+        {messages.map((message, index) => {
+          const visible =
+            Boolean(message.content) || Boolean(message.files && message.files.length > 0);
+          if (!visible) {
+            return null;
+          }
+          return (
+            <div
+              key={`${message.role}-${index}`}
+              className={`assistant-chat__bubble assistant-chat__bubble--${message.role}`}
+            >
+              {message.content && (
+                <span className="assistant-chat__bubble-text">
+                  {message.content}
+                  {loading && index === messages.length - 1 && (
+                    <span className="assistant-chat__caret" aria-hidden="true" />
+                  )}
+                </span>
+              )}
+              {message.files && message.files.length > 0 && (
+                <div className="assistant-chat__bubble-files">
+                  {message.files.map((file) => (
+                    <span key={file.name} className="assistant-chat__bubble-file">
+                      {file.preview ? (
+                        <img src={file.preview} alt={file.name} />
+                      ) : (
+                        <FileText size={13} />
+                      )}
+                      <span>{file.name}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
 
-        {loading && (
+        {loading && streamingIdle && (
           <div className="assistant-chat__bubble assistant-chat__bubble--assistant assistant-chat__typing">
             <span />
             <span />
@@ -378,7 +423,11 @@ export function AssistantChat({
           </div>
         )}
 
-        {error && <div className="assistant-chat__error">{error}</div>}
+        {error && (
+          <div className="assistant-chat__error" role="alert">
+            {error}
+          </div>
+        )}
       </div>
 
       {attachments.length > 0 && (
@@ -449,7 +498,10 @@ export function AssistantChat({
                 }}
               >
                 <FileText size={13} />
-                上传文件
+                <span className="assistant-chat__attach-label">
+                  上传文件
+                  <small>PDF / Word / 文本</small>
+                </span>
               </button>
             </div>
           )}
@@ -468,7 +520,7 @@ export function AssistantChat({
             ref={fileRef}
             type="file"
             multiple
-            accept=".txt,.md,.markdown,.csv,.json,.log,text/*"
+            accept={FILE_ACCEPT}
             className="assistant-chat__file-input"
             onChange={(event) => {
               void addFiles(event.target.files);
