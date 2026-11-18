@@ -19,46 +19,100 @@ import { testServerConnection } from '../lib/serverAi';
 import type { ApiConfig } from '../lib/types';
 import { useApp } from '../state/AppStore';
 
-const PROVIDERS = [
+interface ProviderOption {
+  id: string;
+  label: string;
+  baseUrl: string;
+  models: string[];
+}
+
+const PROVIDERS: ProviderOption[] = [
+  {
+    id: 'deepseek',
+    label: 'DeepSeek 深度求索',
+    baseUrl: 'https://api.deepseek.com/v1',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
+  },
+  {
+    id: 'qwen',
+    label: '通义千问 · 阿里云百炼',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    models: ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwen-long'],
+  },
+  {
+    id: 'zhipu',
+    label: '智谱 GLM',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    models: ['glm-4-plus', 'glm-4-air', 'glm-4-flash', 'glm-4-long'],
+  },
+  {
+    id: 'moonshot',
+    label: '月之暗面 Kimi',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+  },
+  {
+    id: 'hunyuan',
+    label: '腾讯混元',
+    baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1',
+    models: ['hunyuan-turbos-latest', 'hunyuan-pro', 'hunyuan-lite'],
+  },
+  {
+    id: 'qianfan',
+    label: '百度千帆 · 文心一言',
+    baseUrl: 'https://qianfan.baidubce.com/v2',
+    models: ['ernie-4.5-turbo-128k', 'ernie-4.0-8k'],
+  },
+  {
+    id: 'doubao',
+    label: '火山方舟 · 豆包',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    models: [],
+  },
   {
     id: 'openai',
     label: 'OpenAI（兼容接口）',
     baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
-  },
-  {
-    id: 'deepseek',
-    label: 'DeepSeek（兼容接口）',
-    baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-chat',
+    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
   },
   {
     id: 'custom',
     label: '自定义 OpenAI 兼容服务',
     baseUrl: '',
-    model: '',
+    models: [],
   },
 ];
+
+const CUSTOM_PROVIDER = PROVIDERS[PROVIDERS.length - 1];
 
 interface Feedback {
   kind: 'success' | 'error' | 'info';
   message: string;
 }
 
-interface ProviderSelectProps {
-  value: string;
-  onChange: (id: string) => void;
+interface SelectOption {
+  id: string;
+  label: string;
 }
 
-function ProviderSelect({ value, onChange }: ProviderSelectProps) {
+interface GlassSelectProps {
+  id?: string;
+  value: string;
+  options: SelectOption[];
+  onChange: (id: string) => void;
+  ariaLabel: string;
+  menuLabel: string;
+}
+
+function GlassSelect({ id, value, options, onChange, ariaLabel, menuLabel }: GlassSelectProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const selectedIndex = Math.max(
     0,
-    PROVIDERS.findIndex((item) => item.id === value),
+    options.findIndex((item) => item.id === value),
   );
-  const selected = PROVIDERS[selectedIndex];
+  const selected = options[selectedIndex] ?? options[0];
 
   useEffect(() => {
     if (!open) {
@@ -98,11 +152,11 @@ function ProviderSelect({ value, onChange }: ProviderSelectProps) {
         break;
       case 'ArrowDown':
         event.preventDefault();
-        setActiveIndex((index) => (index + 1) % PROVIDERS.length);
+        setActiveIndex((index) => (index + 1) % options.length);
         break;
       case 'ArrowUp':
         event.preventDefault();
-        setActiveIndex((index) => (index - 1 + PROVIDERS.length) % PROVIDERS.length);
+        setActiveIndex((index) => (index - 1 + options.length) % options.length);
         break;
       case 'Home':
         event.preventDefault();
@@ -110,12 +164,12 @@ function ProviderSelect({ value, onChange }: ProviderSelectProps) {
         break;
       case 'End':
         event.preventDefault();
-        setActiveIndex(PROVIDERS.length - 1);
+        setActiveIndex(options.length - 1);
         break;
       case 'Enter':
       case ' ':
         event.preventDefault();
-        choose(PROVIDERS[activeIndex].id);
+        choose(options[activeIndex].id);
         break;
       default:
         break;
@@ -126,15 +180,15 @@ function ProviderSelect({ value, onChange }: ProviderSelectProps) {
     <div className="glass-select" ref={rootRef}>
       <button
         type="button"
-        id="api-provider"
+        id={id}
         className="glass-select__trigger"
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={`模型服务：${selected.label}`}
+        aria-label={`${ariaLabel}：${selected?.label ?? ''}`}
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={handleKeyDown}
       >
-        <span>{selected.label}</span>
+        <span>{selected?.label ?? ''}</span>
         <ChevronDown size={14} className="glass-select__chevron" aria-hidden="true" />
       </button>
 
@@ -142,13 +196,13 @@ function ProviderSelect({ value, onChange }: ProviderSelectProps) {
         <ul
           className="glass-select__menu"
           role="listbox"
-          aria-label="模型服务"
-          aria-activedescendant={`provider-option-${PROVIDERS[activeIndex].id}`}
+          aria-label={menuLabel}
+          aria-activedescendant={`${id ?? 'select'}-option-${options[activeIndex]?.id ?? ''}`}
         >
-          {PROVIDERS.map((item, index) => (
+          {options.map((item, index) => (
             <li
               key={item.id}
-              id={`provider-option-${item.id}`}
+              id={`${id ?? 'select'}-option-${item.id}`}
               role="option"
               aria-selected={item.id === value}
               className={[
@@ -174,16 +228,21 @@ function ProviderSelect({ value, onChange }: ProviderSelectProps) {
 
 export function ApiConfigPage() {
   const { apiConfig, apiReady, updateApiConfig, serverAi, refreshServerAi } = useApp();
+  const savedProvider =
+    PROVIDERS.find((item) => item.id === apiConfig?.provider) ?? PROVIDERS[0];
   const initial = apiConfig ?? {
-    provider: 'openai',
+    provider: savedProvider.id,
     apiKey: '',
-    baseUrl: PROVIDERS[0].baseUrl,
-    model: PROVIDERS[0].model,
+    baseUrl: savedProvider.baseUrl,
+    model: savedProvider.models[0] ?? '',
   };
   const [provider, setProvider] = useState(initial.provider);
   const [apiKey, setApiKey] = useState(initial.apiKey);
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
   const [model, setModel] = useState(initial.model);
+  const [customModel, setCustomModel] = useState(
+    savedProvider.models.length > 0 && !savedProvider.models.includes(initial.model),
+  );
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
   const [serverTesting, setServerTesting] = useState(false);
@@ -192,17 +251,20 @@ export function ApiConfigPage() {
   const [errors, setErrors] = useState<Partial<Record<keyof ApiConfig, string>>>({});
 
   const currentConfig: ApiConfig = { provider, apiKey, baseUrl, model };
+  const preset = PROVIDERS.find((item) => item.id === provider) ?? CUSTOM_PROVIDER;
+  const providerOptions = PROVIDERS.map((item) => ({ id: item.id, label: item.label }));
+  const CUSTOM_MODEL_ID = '__custom-model__';
+  const modelOptions = [
+    ...preset.models.map((item) => ({ id: item, label: item })),
+    ...(preset.models.length > 0 ? [{ id: CUSTOM_MODEL_ID, label: '自定义模型…' }] : []),
+  ];
 
   const applyProvider = (id: string) => {
-    const preset = PROVIDERS.find((item) => item.id === id);
-    setProvider(id);
-    if (preset && preset.id !== 'custom') {
-      setBaseUrl(preset.baseUrl);
-      setModel(preset.model);
-    } else if (preset) {
-      setBaseUrl('');
-      setModel('');
-    }
+    const next = PROVIDERS.find((item) => item.id === id) ?? CUSTOM_PROVIDER;
+    setProvider(next.id);
+    setBaseUrl(next.baseUrl);
+    setModel(next.models[0] ?? '');
+    setCustomModel(false);
     setErrors({});
     setFeedback(null);
   };
@@ -327,8 +389,8 @@ export function ApiConfigPage() {
               : !serverAi.reachable
                 ? '未检测到本地后端。运行 npm run dev:server（或 npm run dev:all）后点击「重新检测」；也可以继续使用下方自带 Key 模式。'
                 : serverAi.available
-                  ? 'AI 整理会优先经后端调用模型：API Key 只保存在服务端 .env，不进入浏览器，也不受目标服务的 CORS 限制。'
-                  : '后端已连接，但 .env 未配置 LLM_API_KEY（或缺少 LLM_BASE_URL / LLM_MODEL），填写后重启后端即可启用。'}
+                  ? 'AI 整理会优先经后端调用模型：API Key 只保存在服务端，不进入浏览器，也不受目标服务的 CORS 限制。'
+                  : '后端已连接，但尚未配置 AI。你可以在下方填写自己的 API Key，AI 助手会优先使用它。'}
           </p>
           {serverFeedback && (
             <div
@@ -348,23 +410,70 @@ export function ApiConfigPage() {
           <div className="form-grid">
             <div className="field">
               <label htmlFor="api-provider">模型服务</label>
-              <ProviderSelect value={provider} onChange={applyProvider} />
+              <GlassSelect
+                id="api-provider"
+                value={provider}
+                options={providerOptions}
+                onChange={applyProvider}
+                ariaLabel="模型服务"
+                menuLabel="模型服务"
+              />
             </div>
 
             <div className="field">
               <label htmlFor="api-model">模型名称</label>
-              <input
-                id="api-model"
-                value={model}
-                onChange={(event) => {
-                  setModel(event.target.value);
-                  setErrors((prev) => ({ ...prev, model: undefined }));
-                }}
-                placeholder="例如 gpt-4o-mini"
-                autoComplete="off"
-                spellCheck={false}
-                aria-invalid={Boolean(errors.model)}
-              />
+              {preset.models.length > 0 && !customModel ? (
+                <GlassSelect
+                  id="api-model"
+                  value={model}
+                  options={modelOptions}
+                  onChange={(id) => {
+                    setErrors((prev) => ({ ...prev, model: undefined }));
+                    if (id === '__custom-model__') {
+                      setCustomModel(true);
+                      return;
+                    }
+                    setModel(id);
+                  }}
+                  ariaLabel="模型"
+                  menuLabel="模型"
+                />
+              ) : (
+                <input
+                  id="api-model"
+                  value={model}
+                  onChange={(event) => {
+                    setModel(event.target.value);
+                    setErrors((prev) => ({ ...prev, model: undefined }));
+                  }}
+                  placeholder={
+                    provider === 'doubao'
+                      ? '填写接入点 ID（ep-xxx）'
+                      : '例如 gpt-4o-mini 或自定义模型名'
+                  }
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-invalid={Boolean(errors.model)}
+                />
+              )}
+              {preset.models.length > 0 && (
+                <span className="field__hint">
+                  {customModel ? (
+                    <button
+                      type="button"
+                      className="field__link"
+                      onClick={() => {
+                        setCustomModel(false);
+                        setModel(preset.models[0] ?? '');
+                      }}
+                    >
+                      返回预设模型列表
+                    </button>
+                  ) : (
+                    '也可以选择「自定义模型…」手动填写模型名'
+                  )}
+                </span>
+              )}
               {errors.model && <span className="field__error">{errors.model}</span>}
             </div>
 

@@ -1,3 +1,4 @@
+import { getToken } from './auth';
 import type { ExtractedNode } from './types';
 import { chunkText, mergeExtractions } from './extractCore';
 import type { ExtractionProgress } from './llm';
@@ -82,9 +83,13 @@ export async function extractWithServer(
   try {
     for (let i = 0; i < chunks.length; i += 1) {
       onProgress?.({ done: i, total: chunks.length });
+      const token = getToken();
       const response = await fetch('/api/ai/extract', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ text: chunks[i].text }),
         signal,
       });
