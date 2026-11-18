@@ -1,3 +1,4 @@
+import { getToken } from './auth';
 import type { KnowledgeDoc } from './types';
 
 export interface RemoteSnapshot {
@@ -6,9 +7,16 @@ export interface RemoteSnapshot {
   updatedAt: number;
 }
 
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token = getToken();
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
+}
+
 export async function fetchSnapshot(): Promise<RemoteSnapshot | null> {
   try {
-    const response = await fetch('/api/data', { headers: { Accept: 'application/json' } });
+    const response = await fetch('/api/data', {
+      headers: authHeaders({ Accept: 'application/json' }),
+    });
     if (!response.ok) {
       return null;
     }
@@ -33,7 +41,7 @@ export async function pushSnapshot(
   try {
     const response = await fetch('/api/data', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ docs, activeDocId }),
     });
     return response.ok;

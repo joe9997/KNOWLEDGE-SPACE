@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowUp, FileText, Image as ImageIcon, Plus, X } from 'lucide-react';
 import type { KnowledgeDoc } from '../../lib/types';
+import { validateApiConfig } from '../../lib/llm';
+import { useApp } from '../../state/AppStore';
 import {
   buildDocContext,
-  requestAssistantReply,
+  requestAssistantReplyStream,
   type ChatContentPart,
   type OutgoingChatMessage,
 } from '../../lib/assistant';
@@ -107,6 +109,7 @@ export function AssistantChat({
   onClose,
   variant = 'popover',
 }: AssistantChatProps) {
+  const { apiConfig } = useApp();
   const panelRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const attachRef = useRef<HTMLDivElement>(null);
@@ -277,20 +280,40 @@ export function AssistantChat({
       { role: 'user', content: outgoing },
     ];
 
-    setMessages(next);
+    setMessages([...next, { role: 'assistant', content: '' }]);
     setInput('');
     setAttachments([]);
     setError(null);
     setLoading(true);
+    let acc = '';
     try {
-      const reply = await requestAssistantReply(history, buildDocContext(doc));
+      const userConfig =
+        apiConfig && validateApiConfig(apiConfig).ok ? apiConfig : null;
+      const reply = await requestAssistantReplyStream(
+        history,
+        buildDocContext(doc),
+        userConfig,
+        (delta) => {
+          acc += delta;
+          setMessages([...next, { role: 'assistant', content: acc }]);
+        },
+      );
       setMessages([...next, { role: 'assistant', content: reply }]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (!(cause instanceof DOMException && cause.name === 'AbortError')) {
+        if (!acc) {
+          setMessages(next);
+        }
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  const lastMessage = messages[messages.length - 1];
+  const streamingIdle =
+    loading && (!lastMessage || lastMessage.role !== 'assistant' || !lastMessage.content);
 
   return (
     <section
@@ -347,30 +370,44 @@ export function AssistantChat({
           </div>
         )}
 
-        {messages.map((message, index) => (
-          <div
-            key={`${message.role}-${index}`}
-            className={`assistant-chat__bubble assistant-chat__bubble--${message.role}`}
-          >
-            {message.content && <span className="assistant-chat__bubble-text">{message.content}</span>}
-            {message.files && message.files.length > 0 && (
-              <div className="assistant-chat__bubble-files">
-                {message.files.map((file) => (
-                  <span key={file.name} className="assistant-chat__bubble-file">
-                    {file.preview ? (
-                      <img src={file.preview} alt={file.name} />
-                    ) : (
-                      <FileText size={13} />
-                    )}
-                    <span>{file.name}</span>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+        {messages.map((message, index) => {
+          const visible =
+            Boolean(message.content) || Boolean(message.files && message.files.length > 0);
+          if (!visible) {
+            return null;
+          }
+          return (
+            <div
+              key={`${message.role}-${index}`}
+              className={`assistant-chat__bubble assistant-chat__bubble--${message.role}`}
+            >
+              {message.content && (
+                <span className="assistant-chat__bubble-text">
+                  {message.content}
+                  {loading && index === messages.length - 1 && (
+                    <span className="assistant-chat__caret" aria-hidden="true" />
+                  )}
+                </span>
+              )}
+              {message.files && message.files.length > 0 && (
+                <div className="assistant-chat__bubble-files">
+                  {message.files.map((file) => (
+                    <span key={file.name} className="assistant-chat__bubble-file">
+                      {file.preview ? (
+                        <img src={file.preview} alt={file.name} />
+                      ) : (
+                        <FileText size={13} />
+                      )}
+                      <span>{file.name}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
 
-        {loading && (
+        {loading && streamingIdle && (
           <div className="assistant-chat__bubble assistant-chat__bubble--assistant assistant-chat__typing">
             <span />
             <span />

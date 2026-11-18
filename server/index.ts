@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { readServerConfig } from './config';
-import { chat, extractChunk, testConnection } from './ai';
+import type { AiConfig } from './config';
+import { chat, chatStream, extractChunk, testConnection } from './ai';
 import type { ChatContent, ChatMessage } from './ai';
 import {
   changePassword,
@@ -237,7 +238,25 @@ app.put('/api/data', requireAuth, async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, updatedAt: snapshot.updatedAt });
 });
 
-app.get('/api/ai/status', (_req, res) => {  res.json({
+/** 用户自带配置：格式可用才采用，否则回退到服务端配置 */
+function readUserAiConfig(raw: unknown): AiConfig | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const item = raw as Record<string, unknown>;
+  const baseUrl = typeof item.baseUrl === 'string' ? item.baseUrl.trim().replace(/\/+$/, '') : '';
+  const apiKey = typeof item.apiKey === 'string' ? item.apiKey.trim() : '';
+  const model = typeof item.model === 'string' ? item.model.trim() : '';
+  if (!baseUrl || !apiKey || !model || !/^https?:\/\/[^\s]+$/i.test(baseUrl)) {
+    return null;
+  }
+  return { baseUrl, apiKey, model };
+}
+
+const NO_AI_MESSAGE = '尚未配置 AI，请先在设置中填写 API Key。';
+
+app.get('/api/ai/status', (_req, res) => {
+  res.json({
     available: Boolean(config.ai),
     model: config.ai?.model ?? null,
     baseUrl: config.ai?.baseUrl ?? null,
@@ -246,7 +265,7 @@ app.get('/api/ai/status', (_req, res) => {  res.json({
 
 app.post('/api/ai/test', async (_req: Request, res: Response) => {
   if (!config.ai) {
-    res.status(503).json({ error: '服务端未配置 LLM_API_KEY，请在 .env 中填写后重启服务。' });
+    res.status(503).json({ error: NO_AI_MESSAGE });
     return;
   }
   try {
@@ -257,27 +276,28 @@ app.post('/api/ai/test', async (_req: Request, res: Response) => {
   }
 });
 
-app.post('/api/ai/chat', requireAuth, async (req: AuthedRequest, res: Response) => {
-  if (!config.ai) {
-    res.status(503).json({ error: '服务端未配置 LLM_API_KEY，请在 .env 中填写后重启服务。' });
-    return;
-  }
-  const rawMessages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+function parseChatMessages(
+  rawBody: unknown,
+): { messages: ChatMessage[]; context: string } | null {
+  const body = (rawBody ?? {}) as Record<string, unknown>;
+  const rawMessages = Array.isArray(body.messages) ? body.messages : [];
   const messages: ChatMessage[] = [];
   for (const item of rawMessages.slice(-MAX_CHAT_MESSAGES)) {
-    const role = item?.role;
-    const content = sanitizeChatContent(item?.content);
+    const role = (item as { role?: unknown })?.role;
+    const content = sanitizeChatContent((item as { content?: unknown })?.content);
     if ((role === 'user' || role === 'assistant') && content) {
       messages.push({ role, content });
     }
   }
   if (messages.length === 0 || messages[messages.length - 1]?.role !== 'user') {
-    res.status(400).json({ error: '请求缺少有效的 user 消息。' });
-    return;
+    return null;
   }
-  const context =
-    typeof req.body?.context === 'string' ? req.body.context.slice(0, MAX_CHAT_CONTEXT) : '';
-  const system: ChatMessage = {
+  const context = typeof body.context === 'string' ? body.context.slice(0, MAX_CHAT_CONTEXT) : '';
+  return { messages, context };
+}
+
+function buildSystemMessage(context: string): ChatMessage {
+  return {
     role: 'system',
     content: [
       '你是「回源」的知识学习助手，帮助用户理解当前会话中的材料。',
@@ -285,9 +305,27 @@ app.post('/api/ai/chat', requireAuth, async (req: AuthedRequest, res: Response) 
       context ? `当前会话材料：\n${context}` : '当前没有打开具体会话，可做通用学习答疑。',
     ].join('\n'),
   };
+}
+
+app.post('/api/ai/chat', requireAuth, async (req: AuthedRequest, res: Response) => {
+  // 用户自带 Key 优先，其次使用 .env 里的服务端配置
+  const ai = readUserAiConfig(req.body?.config) ?? config.ai;
+  if (!ai) {
+    res.status(503).json({ error: NO_AI_MESSAGE });
+    return;
+  }
+  const parsed = parseChatMessages(req.body);
+  if (!parsed) {
+    res.status(400).json({ error: '请求缺少有效的 user 消息。' });
+    return;
+  }
   try {
-    const reply = await chat(config.ai, [system, ...messages], config.extractTimeoutMs);
-    console.log(`[ai] chat ok · ${messages.length} 条消息`);
+    const reply = await chat(
+      ai,
+      [buildSystemMessage(parsed.context), ...parsed.messages],
+      config.extractTimeoutMs,
+    );
+    console.log(`[ai] chat ok · ${parsed.messages.length} 条消息`);
     res.json({ reply });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -296,9 +334,60 @@ app.post('/api/ai/chat', requireAuth, async (req: AuthedRequest, res: Response) 
   }
 });
 
+app.post('/api/ai/chat/stream', requireAuth, async (req: AuthedRequest, res: Response) => {
+  const ai = readUserAiConfig(req.body?.config) ?? config.ai;
+  if (!ai) {
+    res.status(503).json({ error: NO_AI_MESSAGE });
+    return;
+  }
+  const parsed = parseChatMessages(req.body);
+  if (!parsed) {
+    res.status(400).json({ error: '请求缺少有效的 user 消息。' });
+    return;
+  }
+
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (payload: unknown) => {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      controller.abort();
+    }
+  });
+
+  try {
+    const reply = await chatStream(
+      ai,
+      [buildSystemMessage(parsed.context), ...parsed.messages],
+      config.extractTimeoutMs,
+      (delta) => send({ delta }),
+      controller.signal,
+    );
+    send({ done: true });
+    console.log(`[ai] chat stream ok · ${reply.length} 字`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!controller.signal.aborted) {
+      send({ error: message });
+    }
+    console.warn(`[ai] chat stream failed · ${message}`);
+  } finally {
+    res.end();
+  }
+});
+
 app.post('/api/ai/extract', requireAuth, async (req: AuthedRequest, res: Response) => {
-  if (!config.ai) {
-    res.status(503).json({ error: '服务端未配置 LLM_API_KEY，请在 .env 中填写后重启服务。' });
+  const ai = readUserAiConfig(req.body?.config) ?? config.ai;
+  if (!ai) {
+    res.status(503).json({ error: NO_AI_MESSAGE });
     return;
   }
   const text = typeof req.body?.text === 'string' ? req.body.text : '';
@@ -311,7 +400,7 @@ app.post('/api/ai/extract', requireAuth, async (req: AuthedRequest, res: Respons
     return;
   }
   try {
-    const nodes = await extractChunk(config.ai, text, config.extractTimeoutMs);
+    const nodes = await extractChunk(ai, text, config.extractTimeoutMs);
     console.log(`[ai] extract ok · ${text.length} 字 · ${nodes.length} 个节点`);
     res.json({ nodes });
   } catch (error) {
@@ -352,6 +441,6 @@ app.listen(config.port, '127.0.0.1', () => {
   console.log(
     config.ai
       ? `[ai] 已配置 · ${config.ai.model} · ${config.ai.baseUrl}`
-      : '[ai] 未配置 · 复制 .env.example 为 .env 并填写 LLM_API_KEY',
+      : '[ai] 未配置 · 使用者可在设置中填写自己的 API Key',
   );
 });
