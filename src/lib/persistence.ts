@@ -1,4 +1,4 @@
-import { getToken } from './auth';
+import { apiFetch } from './auth';
 import type { KnowledgeDoc } from './types';
 
 export interface RemoteSnapshot {
@@ -7,16 +7,9 @@ export interface RemoteSnapshot {
   updatedAt: number;
 }
 
-function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  const token = getToken();
-  return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
-}
-
 export async function fetchSnapshot(): Promise<RemoteSnapshot | null> {
   try {
-    const response = await fetch('/api/data', {
-      headers: authHeaders({ Accept: 'application/json' }),
-    });
+    const response = await apiFetch('/api/data', { headers: { Accept: 'application/json' } });
     if (!response.ok) {
       return null;
     }
@@ -39,13 +32,20 @@ export async function pushSnapshot(
   activeDocId: string | null,
 ): Promise<boolean> {
   try {
-    const response = await fetch('/api/data', {
+    const response = await apiFetch('/api/data', {
       method: 'PUT',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ docs, activeDocId }),
     });
-    return response.ok;
-  } catch {
+    if (!response.ok) {
+      // 以前这里静默返回 false，云端写入失败用户完全无感。
+      const detail = await response.text().catch(() => '');
+      console.warn(`[sync] 云端保存失败 · HTTP ${response.status} ${detail.slice(0, 200)}`);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.warn(`[sync] 云端保存失败 · ${error instanceof Error ? error.message : String(error)}`);
     return false;
   }
 }

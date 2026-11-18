@@ -2,7 +2,7 @@
 
 把一段讲义变成一片彼此连接的知识星空。每个节点都能回到原文那一句，按掌握程度自测，并按间隔复习只推今天该记的内容。
 
-本项目是 React 19 + TypeScript + Vite 前端，加一个可选的 Node 后端（`server/`，Express）。后端负责托管模型 Key 并代理 AI 调用；不启动后端时，前端仍可独立运行，文档与复习进度照旧保存在浏览器本地。API Key 在服务端模式下只存在于 `.env`，在自带 Key 模式下只存在于当前标签页的 `sessionStorage`。
+本项目是 React 19 + TypeScript + Vite 前端，加一个可选的 Node 后端（`server/`，Express）。后端负责账号、按用户隔离的数据存储，并托管模型 Key、代理 AI 调用；不启动后端时，前端仍可独立运行，文档与复习进度照旧保存在浏览器本地。API Key 在服务端模式下只存在于 `.env`，在自带 Key 模式下只存在于当前标签页的 `sessionStorage`。
 
 ## 快速开始
 
@@ -40,25 +40,14 @@ npm run preview
 npm test
 ```
 
-## 三种打开方式
+## 不装 Node 也能看：双击 `KNOWLEDGE-SPACE.html`
 
-| 方式 | 地址 / 操作 | 适合 |
-| --- | --- | --- |
-| **在线版** | https://joe9997.github.io/KNOWLEDGE-SPACE/ | 手机、平板、发给别人，点开就用 |
-| **单文件离线版** | 下载仓库根目录的 `KNOWLEDGE-SPACE.html` 后双击 | 没网、要拷 U 盘、要发给不用电脑的人 |
-| **本地开发** | `npm install && npm run dev` | 改代码 |
+仓库根目录的 **`KNOWLEDGE-SPACE.html`**（约 880 KB）是整个网页的**单文件离线版**：
+JS、CSS、字体、背景图全部内联在这一个文件里，没有任何外部请求。
 
-### 单文件离线版 `KNOWLEDGE-SPACE.html`
-
-约 960 KB，JS、CSS、背景图全部内联在这一个文件里，没有任何外部请求。
-**双击就能打开**，不需要 Node、不需要联网、不需要起服务器。
-
-> ⚠️ 当前版本引入了后端与账号（`server/`，Passkey / 密码登录、服务端 AI 抽取）。
-> 单文件版**只打包了前端**，所以双击后看到的是登录界面，无法真正登录。
-> 要看完整功能，请用 `npm install && npm run dev:all`（前端 5173 + 后端 3001）。
-> 离线版仍然可以用来查看界面、走查样式、在没网的机器上演示外观。
-
-- 深色 / 浅色主题、知识网络、自测复习、Markdown 导出都能渲染。
+- **双击就能打开**，不需要 Node、不需要联网、不需要起服务器。
+- 深色 / 浅色主题、知识网络、自测复习、Markdown 导出、API 配置全部可用；
+  数据照常存在浏览器的 `localStorage` / `sessionStorage` 里。
 - 发微信、发邮件、拷到 U 盘给同学，都是这一个文件。
 
 需要重新生成时（改了 UI 之后）：
@@ -75,8 +64,7 @@ npm run build:single
 
 ## 团队协作（6 人）
 
-仓库是 **Public**（https://github.com/joe9997/KNOWLEDGE-SPACE ）：任何人可以查看和 fork，
-但**只有项目组的 6 个账号有推送权限**。
+仓库是 **Private**，只有项目组的 6 个 GitHub 账号能访问。
 
 `main` 是受保护分支，**任何人都不直接 push**，一切改动走分支 + PR：
 
@@ -97,10 +85,8 @@ GitHub 上开 PR → CI 绿 → 1 人 Approve → Squash merge（自动删分支
 | 自动化 | 位置 |
 | --- | --- |
 | CI：`npm test` + `npm run build` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
-| 发布：合并进 main 自动部署 Pages | [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) |
+| 发布：手动触发部署 Pages | [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) |
 | PR / Issue 模板、CODEOWNERS | `.github/` |
-
-在线地址：**https://joe9997.github.io/KNOWLEDGE-SPACE/**
 
 ## 已实现
 
@@ -129,16 +115,27 @@ GitHub 上开 PR → CI 绿 → 1 人 Approve → Squash merge（自动删分支
 - 服务端模式：材料会发送到本地后端，再由后端转发到 `.env` 配置的模型服务；自带 Key 模式：材料由浏览器**直接发送到你填写的模型服务**。使用者需自行确认该服务的隐私政策。
 - 示例材料「证据法讲义 · 证明责任」在侧栏、页面头部与导出内容中均标注为「体验材料」。
 
-## 后端（服务端托管 AI）
+## 后端（账号 + 存储 + 服务端托管 AI）
 
-`server/` 是一个最小的 Express 服务，目前只做模型调用中转（不含账号与数据库）：
+`server/` 是一个 Express 服务：既做模型调用中转，也管账号、会话与按用户隔离的知识数据。存储有两套实现——配了 Supabase 就用 Postgres，没配就落到 `data/` 下的 JSON 文件（仅适合本地）。
 
-| 方法 | 路径 | 作用 |
-| --- | --- | --- |
-| GET | `/api/health` | 健康检查，返回 AI 是否已配置 |
-| GET | `/api/ai/status` | 前端读取服务端模型状态（不返回 Key） |
-| POST | `/api/ai/test` | 用服务端配置请求 `/models` 测试连接 |
-| POST | `/api/ai/extract` | 接收单个文本块（≤ 4000 字），调用模型并返回解析后的节点 |
+| 方法 | 路径 | 鉴权 | 作用 |
+| --- | --- | --- | --- |
+| GET | `/api/health` | 否 | 健康检查，返回 AI 是否已配置 |
+| POST | `/api/auth/register` | 否 | 注册（邮箱 + 用户名 + 密码，返回 token） |
+| POST | `/api/auth/login` | 否 | 密码登录，返回 token |
+| POST | `/api/auth/logout` | 是 | 删除当前会话 |
+| GET | `/api/auth/me` | 是 | 读取当前用户 |
+| PUT | `/api/auth/profile` | 是 | 改用户名 / 邮箱 / 头像 |
+| POST | `/api/auth/password` | 是 | 改密码（会踢掉其它设备的会话） |
+| POST | `/api/auth/passkey/register-options` · `register-verify` | 是 | 注册 Passkey |
+| POST | `/api/auth/passkey/login-options` · `login-verify` | 否 | 免密登录 |
+| GET | `/api/data` | 是 | 读取当前用户的全部会话 |
+| PUT | `/api/data` | 是 | 覆盖保存（超限返回 400，不再静默截断） |
+| GET | `/api/ai/status` | 否 | 前端读取服务端模型状态（不返回 Key） |
+| POST | `/api/ai/test` | 是 | 用服务端配置请求 `/models` 测试连接 |
+| POST | `/api/ai/extract` | 是 | 接收单个文本块（≤ 4000 字），调用模型并返回解析后的节点 |
+| POST | `/api/ai/chat` | 是 | 多轮问答（≤ 24 条消息、上下文 ≤ 8000 字） |
 
 环境变量（`.env`，参考 `.env.example`）：
 
@@ -149,8 +146,13 @@ GitHub 上开 PR → CI 绿 → 1 人 Approve → Squash merge（自动删分支
 | `LLM_MODEL` | `deepseek-chat` | 模型名称 |
 | `PORT` | `3001` | 后端端口 |
 | `LLM_TIMEOUT_MS` | `90000` | 单块抽取超时 |
+| `SUPABASE_URL` | 空 | 填了才启用云端存储 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 空 | 服务端密钥，只在后端使用 |
 
 - 服务只监听 `127.0.0.1`，Key 不会返回给浏览器，也不会写入日志。
+- 前端所有受保护接口统一走 `src/lib/auth.ts` 的 `apiFetch()`，自动带 `Authorization: Bearer`，401 时自动清理失效 token。
+- 登录 / 注册 / AI 接口带进程内限流（登录 10 次 / 15 分钟、注册 5 次 / 小时、AI 30 次 / 分钟）；多实例部署需要换成 Redis 计数。
+- Passkey 的 challenge 存在 `webauthn_challenges` 表（本地模式为 `data/challenges.json`），一次性使用、5 分钟过期，不再依赖进程内存。
 - 分块、进度与跨块去重仍由前端完成（每块一次请求），「已处理 x/n 块」照常实时显示。
 - 未启动后端或未配置 Key 时，前端自动回退到「自带 Key 浏览器直连」模式。
 - 同一份抽取规则（Prompt、解析、合并、引用校验）在 `src/lib/extractCore.ts` 共享，前后端不会各写一套。
@@ -233,9 +235,14 @@ grade 2 → mastery=2, goodStreak++, +round(3 * 1.6 ** goodStreak) 天
 
 ```text
 server/
-  index.ts                              # Express 路由、静态托管、错误处理
+  index.ts                              # Express 路由、鉴权中间件、静态托管、错误处理
+  auth.ts                               # 注册 / 登录 / 会话 / Passkey / 改密码
+  store.ts                              # 知识数据快照读写（Supabase / 本地 JSON）
+  challenges.ts                         # WebAuthn challenge 一次性存储
+  ratelimit.ts                          # 登录、注册、AI 接口限流
   ai.ts                                 # 服务端模型调用与连接测试
   config.ts                             # .env 读取与配置校验
+  supabase.ts                           # Supabase 客户端（未配置则返回 null）
 src/
   components/
     background/StarfieldBackground.tsx  # 夜间星轨 + 日间山景与光点
@@ -284,6 +291,8 @@ src/
 
 未使用真实 API Key 进行外部模型调用验证；浏览器直连的成功路径通过拦截的 OpenAI 兼容响应做了端到端验证。后端新增接口（`/api/health`、`/api/ai/status`、`/api/ai/test`、`/api/ai/extract`）用本地 mock 的 OpenAI 兼容服务验证了完整链路：API 页显示「已启用 · mock-chat」、测试连接成功、AI 整理生成可溯源节点。
 
+后端账号与存储链路（注册 → 登录 → 保存 → 回读 → 改密码 → 会话失效 → 限流 → 越界拒绝）用脚本对真实进程跑过一遍；`npm run build` 里的两次 `tsc` 均无报错。服务端暂未补自动化测试（`npm test` 目前只覆盖 `src/`）。
+
 ## 素材说明
 
 - 日间背景照片来自 Unsplash 免费图库，已下载到 `public/assets/day-alpine.jpg`，运行时不依赖外部图片服务。
@@ -291,14 +300,14 @@ src/
 
 ## 后端边界
 
-已实现：服务端模型 Key 托管、连接测试、单块抽取中转、本地静态托管。
+已实现：账号与密码登录、Passkey 免密登录、会话管理、按用户隔离的知识数据持久化（Supabase / 本地 JSON 双实现）、服务端模型 Key 托管、连接测试、单块抽取中转、多轮问答、本地静态托管。
 
 仍未实现：
 
-- 账号、登录、多设备同步；
-- 服务端持久化（Postgres / Supabase）与文档上传；
+- 邮箱验证、找回密码、账号删除；
+- 多设备冲突合并（现在是「最后写入者覆盖」，没有版本号或 ETag 校验）；
 - 服务端异步抽取任务、重试队列与整篇进度接口；
 - pgvector 句子切分与相似度兜底（≥ 0.75）；
-- 限流与配额、多租户 Key 管理；
+- 分布式限流与配额、多租户 Key 管理；
 - PDF / 图片 OCR、多人协作、分享广场；
-- 部署与公网访问（后端默认只监听 `127.0.0.1`）。
+- 公网部署（服务默认只监听 `127.0.0.1`；Vercel 上还需补 `maxDuration` 并把本地文件存储换成 Supabase）。

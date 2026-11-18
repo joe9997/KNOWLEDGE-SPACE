@@ -42,5 +42,5 @@ Thumbs.db
 *.tmp
 *.log
 
-# 本地重复的仓库副本（工具自动 clone 出来的，不是源码的一部分）
-/projec1/
+# Vercel 项目关联（本地配置，不进仓库）
+.vercel

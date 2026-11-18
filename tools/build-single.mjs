@@ -4,6 +4,10 @@
 // 为什么要单独做：直接双击 Vite 产出的 dist/index.html 打不开——
 // 它用 <script type="module" src="./assets/x.js">，file:// 协议下浏览器会按
 // CORS 规则拦截模块脚本。这里改成 IIFE 内联，JSON/CSS/图片全部塞进一个文件。
+//
+// 注意（别删）：下面的 escapeScript / escapeStyle 和 insertBeforeBodyEnd 是必须的。
+// React 的产物里带 innerHTML="<script><\/script>" 这样的字面量，不转义就会让浏览器
+// 提前闭合 <script> 标签，剩下的 JS 全变成文本 → 整页白屏。这个坑踩过一次。
 
 import { build } from 'vite';
 import react from '@vitejs/plugin-react';

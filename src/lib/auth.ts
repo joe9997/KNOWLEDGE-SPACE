@@ -20,6 +20,41 @@ export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+/** 带 HTTP 状态码的接口错误，调用方可以据此区分「没登录」和「后端挂了」 */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/** 统一构造带 Bearer 的请求头；没有 token 时退化成普通请求 */
+export function authHeaders(extra?: HeadersInit): Headers {
+  const headers = new Headers(extra);
+  const token = getToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  return headers;
+}
+
+/**
+ * 所有需要登录态的请求都从这里走。
+ * 以前 `/api/data`、`/api/ai/extract`、`/api/ai/chat` 都是裸 fetch，
+ * 后端加上 requireAuth 之后全部 401，云同步和服务端 AI 静默失效。
+ */
+export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const response = await fetch(path, { ...init, headers: authHeaders(init.headers) });
+  if (response.status === 401 && getToken()) {
+    // token 已失效：清掉，避免每次请求都带着一个死 token 反复 401
+    clearToken();
+  }
+  return response;
+}
+
 async function readError(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: unknown };
@@ -35,13 +70,9 @@ async function readError(response: Response): Promise<string> {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
-  const token = getToken();
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-  const response = await fetch(path, { ...init, headers });
+  const response = await apiFetch(path, { ...init, headers });
   if (!response.ok) {
-    throw new Error(await readError(response));
+    throw new ApiError(response.status, await readError(response));
   }
   return (await response.json()) as T;
 }
@@ -90,7 +121,8 @@ export async function apiMe(): Promise<User | null> {
     const result = await request<{ user: User }>('/api/auth/me');
     return result.user;
   } catch {
-    clearToken();
+    // 401 时 apiFetch 已经清掉 token；网络错误 / 后端没起时保留 token，
+    // 免得用户一断网或后端重启就被静默登出。
     return null;
   }
 }
