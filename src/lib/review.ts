@@ -10,25 +10,38 @@ export interface ReviewSchedule {
   nextReviewAt: number;
 }
 
+export interface ReviewOptions {
+  /** 掌握后的基础记忆天数，默认 3 */
+  baseDays?: number;
+  /** 学习节奏系数：冲刺 < 1，深耕 > 1 */
+  rhythmFactor?: number;
+}
+
 /**
- * 简化 SM-2（PRD 第 11 节）：
- * grade 0 → mastery 0, streak 0, +1 天
- * grade 1 → mastery 1, streak 0, +2 天
- * grade 2 → mastery 2, streak +1, +round(3 * 1.6^streak) 天
+ * 简化 SM-2（PRD 第 11 节），基础间隔可被个性化偏好调整：
+ * grade 0 → mastery 0, streak 0, +max(1, round(baseDays * 0.35 * factor)) 天
+ * grade 1 → mastery 1, streak 0, +max(1, round(baseDays * 0.6 * factor)) 天
+ * grade 2 → mastery 2, streak +1, +round(baseDays * 1.6^streak * factor) 天
+ * 默认 baseDays=3、factor=1 时与原算法完全一致（1 / 2 / 5 / 8 / 12 天）。
  */
 export function scheduleReview(
   current: { goodStreak: number },
   grade: ReviewGrade,
   now: number,
+  options: ReviewOptions = {},
 ): ReviewSchedule {
+  const baseDays = Math.min(30, Math.max(1, options.baseDays ?? 3));
+  const factor = Math.min(3, Math.max(0.2, options.rhythmFactor ?? 1));
   if (grade === 0) {
-    return { mastery: 0, goodStreak: 0, intervalDays: 1, nextReviewAt: now + DAY_MS };
+    const intervalDays = Math.max(1, Math.round(baseDays * 0.35 * factor));
+    return { mastery: 0, goodStreak: 0, intervalDays, nextReviewAt: now + DAY_MS * intervalDays };
   }
   if (grade === 1) {
-    return { mastery: 1, goodStreak: 0, intervalDays: 2, nextReviewAt: now + DAY_MS * 2 };
+    const intervalDays = Math.max(1, Math.round(baseDays * 0.6 * factor));
+    return { mastery: 1, goodStreak: 0, intervalDays, nextReviewAt: now + DAY_MS * intervalDays };
   }
   const goodStreak = current.goodStreak + 1;
-  const intervalDays = Math.round(3 * Math.pow(1.6, goodStreak));
+  const intervalDays = Math.max(1, Math.round(baseDays * Math.pow(1.6, goodStreak) * factor));
   return {
     mastery: 2,
     goodStreak,

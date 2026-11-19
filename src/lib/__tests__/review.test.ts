@@ -37,6 +37,21 @@ describe('简化 SM-2 复习算法', () => {
     expect(third.nextReviewAt).toBe(NOW + 12 * DAY_MS);
   });
 
+  it('个性化记忆天数与节奏会缩放复习间隔', () => {
+    const longMemory = scheduleReview({ goodStreak: 0 }, 2, NOW, { baseDays: 7 });
+    expect(longMemory.intervalDays).toBe(11);
+
+    const sprint = scheduleReview({ goodStreak: 0 }, 2, NOW, {
+      baseDays: 3,
+      rhythmFactor: 0.6,
+    });
+    expect(sprint.intervalDays).toBe(3);
+
+    const quickFail = scheduleReview({ goodStreak: 4 }, 0, NOW, { baseDays: 1 });
+    expect(quickFail.intervalDays).toBe(1);
+    expect(quickFail.goodStreak).toBe(0);
+  });
+
   it('到期判断与状态颜色映射', () => {
     expect(isDue(NOW - 1, NOW)).toBe(true);
     expect(isDue(NOW + 1, NOW)).toBe(false);

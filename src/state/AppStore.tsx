@@ -24,10 +24,14 @@ import {
   loadActiveDocId,
   loadApiConfig,
   loadDocs,
+  loadLearningPrefs,
   saveActiveDocId,
   saveApiConfig,
   saveDocs,
+  saveLearningPrefs,
 } from '../lib/storage';
+import { DEFAULT_PREFS, rhythmFactor } from '../lib/learningPrefs';
+import type { LearningPrefs } from '../lib/learningPrefs';
 import type {
   ApiConfig,
   DocOrigin,
@@ -60,6 +64,8 @@ interface AppContextValue {
   aiReady: boolean;
   currentUser: User | null;
   authLoading: boolean;
+  learningPrefs: LearningPrefs;
+  updateLearningPrefs: (patch: Partial<LearningPrefs>) => void;
   refreshServerAi: () => Promise<void>;
   setOffsetDays: (days: number) => void;
   setActiveDocId: (id: string) => void;
@@ -100,6 +106,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [serverAi, setServerAi] = useState<ServerAiStatus | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [learningPrefs, setLearningPrefs] = useState<LearningPrefs>(DEFAULT_PREFS);
   const [hydrated, setHydrated] = useState(false);
 
   const refreshServerAi = useCallback(async () => {
@@ -124,6 +131,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const applyUser = useCallback(async (user: User) => {
     setCurrentUser(user);
     setApiConfig(loadApiConfig(user.id));
+    setLearningPrefs(loadLearningPrefs(user.id));
     const local = loadDocs(user.id) ?? [];
     const remote = await fetchSnapshot();
     let next = local;
@@ -293,7 +301,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
               if (node.id !== nodeId) {
                 return node;
               }
-              const schedule = scheduleReview(node, grade, now);
+              const schedule = scheduleReview(node, grade, now, {
+                baseDays: learningPrefs.baseDays,
+                rhythmFactor: rhythmFactor(learningPrefs.rhythm),
+              });
               return {
                 ...node,
                 mastery: schedule.mastery,
@@ -306,7 +317,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }),
       );
     },
-    [offsetDays],
+    [offsetDays, learningPrefs],
+  );
+
+  const updateLearningPrefs = useCallback(
+    (patch: Partial<LearningPrefs>) => {
+      setLearningPrefs((prev) => {
+        const next = { ...prev, ...patch };
+        if (currentUser) {
+          saveLearningPrefs(currentUser.id, next);
+        }
+        return next;
+      });
+    },
+    [currentUser],
   );
 
   const resetDemo = useCallback(() => {
@@ -354,6 +378,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       aiReady,
       currentUser,
       authLoading,
+      learningPrefs,
+      updateLearningPrefs,
       refreshServerAi,
       setOffsetDays,
       setActiveDocId,
@@ -383,6 +409,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       aiReady,
       currentUser,
       authLoading,
+      learningPrefs,
+      updateLearningPrefs,
       refreshServerAi,
       setActiveDocId,
       createDoc,
