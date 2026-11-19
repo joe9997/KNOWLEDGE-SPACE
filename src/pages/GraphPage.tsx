@@ -22,7 +22,7 @@ const ORIGIN_LABEL: Record<KnowledgeDoc['origin'], string> = {
 };
 
 export function GraphPage({ doc, onStartQuiz, onNavigate }: GraphPageProps) {
-  const { now, activeDocId } = useApp();
+  const { now, offsetDays, activeDocId } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -127,6 +127,7 @@ export function GraphPage({ doc, onStartQuiz, onNavigate }: GraphPageProps) {
           selectedId={selectedId}
           onSelect={setSelectedId}
           onExport={() => downloadMarkdown(doc, now)}
+          offsetDays={offsetDays}
         />
         {selectedNode && (
           <SourcePanel

@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { statusOf } from '../../lib/review';
-import type { KnowledgeDoc, KnowledgeNode, NodeStatus } from '../../lib/types';
+import { DAY_MS, isDue } from '../../lib/review';
+import type { KnowledgeDoc, KnowledgeNode, Mastery } from '../../lib/types';
 import { buildGraphLinks, computeSphereLayout } from './graphLayout';
 
 export interface GalaxyGraphHandle {
@@ -13,6 +13,8 @@ interface GalaxyGraphProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onZoomChange: (percent: number) => void;
+  /** 演示时间偏移（天）。图谱的「到期」判断要和首页「今日待复习」用同一个“现在” */
+  offsetDays: number;
 }
 
 interface ProjectedNode {
@@ -38,16 +40,21 @@ const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 2.6;
 const FONT_STACK = '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
 
-const PALETTES: Record<NodeStatus, { dark: NodePalette; light: NodePalette }> = {
-  due: {
+/**
+ * 颜色只表达「掌握度」，与是否到期无关：
+ * 0 没记住 = 玫红，1 有点模糊 = 暖黄，2 已掌握 = 薄荷绿。
+ * 到期由 drawNode 里的脉冲描边单独提示，不覆盖掌握度颜色。
+ */
+const PALETTES: Record<Mastery, { dark: NodePalette; light: NodePalette }> = {
+  0: {
     dark: { core: '#FF5C93', mid: '#FF9CC7', halo: '255, 92, 147' },
     light: { core: '#D9467A', mid: '#F07CA6', halo: '217, 70, 122' },
   },
-  fuzzy: {
+  1: {
     dark: { core: '#F4B740', mid: '#FFD98A', halo: '244, 183, 64' },
     light: { core: '#B9801C', mid: '#E0A93F', halo: '185, 128, 28' },
   },
-  mastered: {
+  2: {
     dark: { core: '#38D6AC', mid: '#8CE9C4', halo: '56, 214, 172' },
     light: { core: '#2A9371', mid: '#5FC6A4', halo: '42, 147, 113' },
   },
@@ -58,7 +65,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
-  function GalaxyGraph({ doc, selectedId, onSelect, onZoomChange }, ref) {
+  function GalaxyGraph({ doc, selectedId, onSelect, onZoomChange, offsetDays }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? 'dark');
     const selectedIdRef = useRef(selectedId);
@@ -111,13 +118,24 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
 
       const layout = computeSphereLayout(doc.nodes);
       const links = buildGraphLinks(doc.nodes, doc.relations);
-      const now = Date.now();
+
+      // 掌握度颜色与时间无关，建一次即可；到期集合会随时间变化，定期刷新
       const palettes = new Map<string, NodePalette>(
-        doc.nodes.map((node) => [
-          node.id,
-          PALETTES[statusOf(node, now)][light ? 'light' : 'dark'],
-        ]),
+        doc.nodes.map((node) => [node.id, PALETTES[node.mastery][light ? 'light' : 'dark']]),
       );
+      let dueIds = new Set<string>();
+      const refreshDue = () => {
+        const now = Date.now() + offsetDays * DAY_MS;
+        dueIds = new Set(
+          doc.nodes.filter((node) => isDue(node.nextReviewAt, now)).map((node) => node.id),
+        );
+      };
+      refreshDue();
+
+      // 到期描边用 CSS 变量，深浅主题各有一套，改主题时 effect 会重建
+      const ringColor =
+        getComputedStyle(document.documentElement).getPropertyValue('--node-ring').trim() ||
+        (light ? '#C9184A' : '#FF4D6D');
 
       let width = 0;
       let height = 0;
@@ -128,6 +146,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
       let raf = 0;
       let projected: ProjectedNode[] = [];
       let hoveredId: string | null = null;
+      let lastStatusAt = 0;
       let drag: { x: number; y: number; moved: boolean; pointerId: number } | null = null;
 
       const resize = () => {
@@ -281,7 +300,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
       const relationWidth = (kind: 'tree' | 'relation') => (kind === 'relation' ? 1.1 : 1.2);
 
       const drawNode = (entry: ProjectedNode, time: number) => {
-        const palette = palettes.get(entry.id) ?? PALETTES.due.dark;
+        const palette = palettes.get(entry.id) ?? PALETTES[0].dark;
         const selected = selectedIdRef.current === entry.id;
         const hovered = hoveredId === entry.id;
         const active = selected || hovered;
@@ -359,6 +378,21 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         ctx.beginPath();
         ctx.arc(entry.sx, entry.sy, coreRadius, 0, Math.PI * 2);
         ctx.fill();
+
+        // 到期不改掌握度颜色，只在外圈加一圈脉冲虚线提醒
+        if (dueIds.has(entry.id)) {
+          const pulse = (Math.sin(time * 2.6) + 1) * 0.5;
+          ctx.save();
+          ctx.globalAlpha = alpha * (0.55 + pulse * 0.45);
+          ctx.strokeStyle = ringColor;
+          ctx.lineWidth = 1.3;
+          ctx.setLineDash([2.5, 3.5]);
+          ctx.beginPath();
+          ctx.arc(entry.sx, entry.sy, coreRadius + 3.5 + pulse * 1.6, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+
         ctx.restore();
 
         const isRoot = entry.node.parentId === null;
@@ -397,6 +431,11 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
 
       const drawFrame = (timestamp: number) => {
         const time = timestamp / 1000;
+        // 每 2 秒重算一次到期集合：页面跨天、演示时间变化都能跟上
+        if (timestamp - lastStatusAt > 2000) {
+          refreshDue();
+          lastStatusAt = timestamp;
+        }
         const fit = Math.min(width, height) / 520;
 
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -508,7 +547,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           container.removeChild(canvas);
         }
       };
-    }, [doc, theme]);
+    }, [doc, theme, offsetDays]);
 
     return (
       <div
