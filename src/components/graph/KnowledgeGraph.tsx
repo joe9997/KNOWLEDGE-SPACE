@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { FileText, Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
 import type { KnowledgeDoc } from '../../lib/types';
+import type { PaletteTheme } from '../../lib/learningPrefs';
+import type { GraphView } from './graphLayout';
 import { GalaxyGraph } from './GalaxyGraph';
 import type { GalaxyGraphHandle } from './GalaxyGraph';
 
@@ -10,6 +12,7 @@ interface KnowledgeGraphProps {
   onSelect: (id: string) => void;
   onExport: () => void;
   offsetDays: number;
+  paletteTheme: PaletteTheme;
 }
 
 export function KnowledgeGraph({
@@ -18,11 +21,13 @@ export function KnowledgeGraph({
   onSelect,
   onExport,
   offsetDays,
+  paletteTheme,
 }: KnowledgeGraphProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const galaxyRef = useRef<GalaxyGraphHandle>(null);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [view, setView] = useState<GraphView>('galaxy');
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -57,9 +62,30 @@ export function KnowledgeGraph({
         onSelect={onSelect}
         onZoomChange={setZoomPercent}
         offsetDays={offsetDays}
+        view={view}
+        paletteTheme={paletteTheme}
       />
 
-      <p className="graph-hint">拖动旋转星系 · 滚轮缩放 · 点击星点查看原文</p>
+      <div className="graph-view-switcher" aria-label="图谱视图类型">
+        {([
+          ['galaxy', '星系'],
+          ['radial', '辐射图'],
+          ['tree', '树形图'],
+          ['timeline', '时间线'],
+        ] as Array<[GraphView, string]>).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className="graph-view-button"
+            aria-pressed={view === value}
+            onClick={() => setView(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <p className="graph-hint">{view === 'galaxy' ? '拖动旋转星系' : '拖动平移图谱'} · 滚轮缩放 · 点击节点查看原文</p>
 
       {doc.nodes.length === 0 && (
         <p className="source-panel__empty" style={{ position: 'absolute', inset: 0 }}>
@@ -93,7 +119,7 @@ export function KnowledgeGraph({
               type="button"
               className="tool-button"
               onClick={() => galaxyRef.current?.zoomBy(-1)}
-              disabled={zoomPercent >= 190}
+              disabled={zoomPercent <= 60}
               aria-label="缩小"
               title="缩小"
             >
@@ -104,7 +130,7 @@ export function KnowledgeGraph({
               type="button"
               className="tool-button"
               onClick={() => galaxyRef.current?.zoomBy(1)}
-              disabled={zoomPercent <= 100}
+              disabled={zoomPercent >= 260}
               aria-label="放大"
               title="放大"
             >

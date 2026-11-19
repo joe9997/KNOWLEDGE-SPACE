@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Info, BookOpen } from 'lucide-react';
+import { Info, BookOpen, ListChecks, SlidersHorizontal } from 'lucide-react';
 import { KnowledgeGraph } from '../components/graph/KnowledgeGraph';
+import { LearningPrefsModal } from '../components/graph/LearningPrefsModal';
 import { SourcePanel } from '../components/source/SourcePanel';
 import { TimeTravel } from '../components/TimeTravel';
 import { DEMO_NOTICE } from '../data/demo';
@@ -12,6 +13,7 @@ import { useApp } from '../state/AppStore';
 interface GraphPageProps {
   doc: KnowledgeDoc | null;
   onStartQuiz: (nodeIds: string[]) => void;
+  onOpenQuizBank: (nodeIds: string[]) => void;
   onNavigate: (view: AppView) => void;
 }
 
@@ -21,9 +23,10 @@ const ORIGIN_LABEL: Record<KnowledgeDoc['origin'], string> = {
   ai: 'AI 整理',
 };
 
-export function GraphPage({ doc, onStartQuiz, onNavigate }: GraphPageProps) {
-  const { now, offsetDays, activeDocId } = useApp();
+export function GraphPage({ doc, onStartQuiz, onOpenQuizBank, onNavigate }: GraphPageProps) {
+  const { now, offsetDays, activeDocId, learningPrefs } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [prefsOpen, setPrefsOpen] = useState(false);
 
   useEffect(() => {
     setSelectedId(null);
@@ -117,6 +120,22 @@ export function GraphPage({ doc, onStartQuiz, onNavigate }: GraphPageProps) {
               <span className="stat__label">可溯源</span>
             </div>
           </div>
+          <button
+            type="button"
+            className="glass-button graph-quiz-button"
+            onClick={() => onOpenQuizBank(doc.nodes.map((node) => node.id))}
+          >
+            <ListChecks size={15} />
+            题库
+          </button>
+          <button
+            type="button"
+            className="glass-button graph-quiz-button graph-prefs-button"
+            onClick={() => setPrefsOpen(true)}
+          >
+            <SlidersHorizontal size={15} />
+            个性化
+          </button>
           <TimeTravel compact />
         </div>
       </header>
@@ -128,6 +147,7 @@ export function GraphPage({ doc, onStartQuiz, onNavigate }: GraphPageProps) {
           onSelect={setSelectedId}
           onExport={() => downloadMarkdown(doc, now)}
           offsetDays={offsetDays}
+          paletteTheme={learningPrefs.palette}
         />
         {selectedNode && (
           <SourcePanel
@@ -138,6 +158,8 @@ export function GraphPage({ doc, onStartQuiz, onNavigate }: GraphPageProps) {
           />
         )}
       </div>
+
+      <LearningPrefsModal open={prefsOpen} onClose={() => setPrefsOpen(false)} />
     </div>
   );
 }
