@@ -56,11 +56,13 @@ export class StoreError extends Error {
   }
 }
 
-const dataDir = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  'data',
-);
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..',
+      'data',
+    );
 
 function dataFileFor(userId: string): string {
   const safe = userId.replace(/[^a-zA-Z0-9_-]/g, '_');

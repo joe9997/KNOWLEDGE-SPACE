@@ -69,11 +69,11 @@
   --link: rgba(154, 195, 245, 0.3);
   --link-strong: rgba(173, 211, 255, 0.42);
 
-  --node-due: #ff9cc7;
+  --node-due: #ffa8ce;
   --node-due-glow: rgba(255, 124, 180, 0.5);
-  --node-fuzzy: #f2c875;
+  --node-fuzzy: #ffd98f;
   --node-fuzzy-glow: rgba(240, 192, 105, 0.42);
-  --node-mastered: #8ce9c4;
+  --node-mastered: #9bf5d9;
   --node-mastered-glow: rgba(112, 231, 186, 0.42);
   --node-muted: rgba(203, 221, 246, 0.34);
   --node-ring: #ff4d6d;
@@ -151,12 +151,12 @@
   --link: rgba(47, 84, 126, 0.26);
   --link-strong: rgba(41, 80, 123, 0.36);
 
-  --node-due: #c94f85;
-  --node-due-glow: rgba(201, 79, 133, 0.38);
-  --node-fuzzy: #b9801c;
-  --node-fuzzy-glow: rgba(185, 128, 28, 0.32);
-  --node-mastered: #2a9371;
-  --node-mastered-glow: rgba(42, 147, 113, 0.32);
+  --node-due: #d6316f;
+  --node-due-glow: rgba(214, 49, 111, 0.38);
+  --node-fuzzy: #b4760c;
+  --node-fuzzy-glow: rgba(180, 118, 12, 0.32);
+  --node-mastered: #12876a;
+  --node-mastered-glow: rgba(18, 135, 106, 0.32);
   --node-muted: rgba(45, 75, 108, 0.32);
   --node-ring: #c9184a;
 

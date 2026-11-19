@@ -56,7 +56,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  */
 const SAFE_IDENTIFIER_RE = /^[^\s,()"'`\\%_:*]{1,200}$/;
 
-const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const usersFile = path.join(dataDir, 'users.json');
 const sessionsFile = path.join(dataDir, 'sessions.json');
 

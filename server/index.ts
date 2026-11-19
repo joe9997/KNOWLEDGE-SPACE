@@ -457,7 +457,10 @@ app.use('/api', (_req, res) => {
 });
 
 // 构建产物存在时顺带托管前端，便于 npm run build && npm start 单进程运行
-const distDir = path.join(rootDir, 'dist');
+// 容器部署时前端文件可能与 server/ 同级，用 STATIC_DIR 指定
+const distDir = process.env.STATIC_DIR
+  ? path.resolve(process.env.STATIC_DIR)
+  : path.join(rootDir, 'dist');
 if (existsSync(distDir)) {
   app.use(express.static(distDir));
   app.use((req, res, next) => {
@@ -485,8 +488,9 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
 export default app;
 
 if (!process.env.VERCEL) {
-  app.listen(config.port, '127.0.0.1', () => {
-    console.log(`[api] http://127.0.0.1:${config.port}`);
+  const host = process.env.HOST ?? '127.0.0.1';
+  app.listen(config.port, host, () => {
+    console.log(`[api] http://${host}:${config.port}`);
     console.log(
       config.ai
         ? `[ai] configured · ${config.ai.model} · ${config.ai.baseUrl}`
