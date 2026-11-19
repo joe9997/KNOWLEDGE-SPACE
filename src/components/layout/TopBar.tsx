@@ -14,6 +14,7 @@ const VIEW_LABEL: Record<AppView, string> = {
   home: '首页',
   new: '新建会话',
   graph: '知识网络',
+  review: '今日复习',
   settings: '设置',
   assistant: 'AI 助手',
 };

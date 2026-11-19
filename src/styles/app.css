@@ -4804,3 +4804,199 @@ ul {
     flex: 0 0 auto;
   }
 }
+
+/* ---------- 今日复习（AI 卡片） ---------- */
+.review-entry.is-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--sidebar-active);
+}
+
+.review-page .assistant-chat__head {
+  cursor: default;
+}
+
+.review-page__meta {
+  margin-left: auto;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.review-nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.review-nav__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.review-nav__track {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 2px 0 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.review-nav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 220px;
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--glass-bg-faint);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.review-nav__item:hover {
+  border-color: var(--glass-border-strong);
+  background: var(--glass-bg-soft);
+  color: var(--text);
+}
+
+.review-nav__item.is-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.review-nav__item.is-done {
+  color: var(--text-faint);
+}
+
+.review-nav__item.is-done .review-nav__text {
+  text-decoration: line-through;
+}
+
+.review-nav__index {
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.review-nav__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-nav__empty {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.review-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.review-qcard {
+  width: 100%;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--glass-bg-faint);
+  transition:
+    border-color var(--transition-base),
+    background var(--transition-base),
+    opacity var(--transition-base);
+}
+
+.review-qcard.is-done {
+  opacity: 0.82;
+}
+
+.review-qcard__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.review-qcard__label {
+  overflow: hidden;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-qcard__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.review-qcard__question {
+  margin-bottom: 16px;
+  font-family: var(--font-serif);
+  font-size: clamp(18px, 2vw, 22px);
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.review-qcard__answer {
+  margin-bottom: 16px;
+}
+
+.review-qcard__actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.review-qcard__graded {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--node-mastered);
+}
+
+@media (max-width: 900px) {
+  .review-nav {
+    padding: 9px 12px;
+  }
+
+  .review-nav__label {
+    display: none;
+  }
+
+  .review-qcard {
+    padding: 14px;
+  }
+}

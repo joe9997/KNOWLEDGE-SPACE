@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { StarfieldBackground } from './components/background/StarfieldBackground';
 import { AuthModal } from './components/auth/AuthModal';
@@ -9,16 +9,16 @@ import { QuizModal } from './components/quiz/QuizModal';
 import { GraphPage } from './pages/GraphPage';
 import { HomePage } from './pages/HomePage';
 import { NewSessionPage } from './pages/NewSessionPage';
+import { ReviewPage } from './pages/ReviewPage';
 import { SettingsPage } from './pages/SettingsPage';
 import type { SettingsSection } from './pages/SettingsPage';
-import { isDue } from './lib/review';
 import type { QuizMode } from './lib/quizBank';
 import type { AppView } from './lib/types';
 import { useMediaQuery } from './lib/useMediaQuery';
 import { useApp } from './state/AppStore';
 
 export default function App() {
-  const { activeDoc, activeDocId, now, resetDemo, setActiveDocId, currentUser, authLoading, learningPrefs } =
+  const { activeDoc, activeDocId, resetDemo, setActiveDocId, currentUser, authLoading, learningPrefs } =
     useApp();
   const isMobile = useMediaQuery('(max-width: 900px)');
   const [view, setView] = useState<AppView>('home');
@@ -50,20 +50,10 @@ export default function App() {
     navigate('new');
   }, [navigate]);
 
-  const dueNodeIds = useMemo(() => {
-    if (!activeDoc) {
-      return [];
-    }
-    return activeDoc.nodes
-      .filter((node) => isDue(node.nextReviewAt, now))
-      .sort((a, b) => a.nextReviewAt - b.nextReviewAt)
-      .map((node) => node.id);
-  }, [activeDoc, now]);
-
   const openReview = useCallback(() => {
     setSidebarOpen(false);
-    setQuizSession({ queue: dueNodeIds, mode: 'self' });
-  }, [dueNodeIds]);
+    navigate('review');
+  }, [navigate]);
 
   useEffect(() => {
     if (!isMobile) {
@@ -163,7 +153,7 @@ export default function App() {
                     openNewSession();
                   }
                 }}
-                onStartReview={(nodeIds) => setQuizSession({ queue: nodeIds, mode: 'self' })}
+                onStartReview={() => navigate('review')}
               />
             )}
 
@@ -193,6 +183,8 @@ export default function App() {
                 }}
               />
             )}
+
+            {view === 'review' && <ReviewPage />}
 
             {view === 'settings' && <SettingsPage initialSection={settingsSection} />}
 

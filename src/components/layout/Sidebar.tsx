@@ -266,7 +266,12 @@ export function Sidebar({
             </span>
           </button>
 
-          <button type="button" className="review-entry" onClick={onOpenReview}>
+          <button
+            type="button"
+            className={`review-entry ${view === 'review' ? 'is-active' : ''}`.trim()}
+            onClick={onOpenReview}
+            aria-current={view === 'review' ? 'page' : undefined}
+          >
             <span className="review-entry__icon">
               <CalendarCheck2 size={15} />
             </span>
