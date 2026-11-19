@@ -1,10 +1,12 @@
-import type { KnowledgeNode, Relation } from '../../lib/types';
+import type { KnowledgeDoc, KnowledgeNode, Relation } from '../../lib/types';
 
 export interface GraphLink {
   from: string;
   to: string;
   kind: 'tree' | 'relation';
 }
+
+export type GraphView = 'galaxy' | 'radial' | 'tree' | 'timeline';
 
 export interface SpherePoint {
   x: number;
@@ -113,6 +115,139 @@ export function computeGalaxyLayout(nodes: KnowledgeNode[]): Record<string, Sphe
   });
 
   return points;
+}
+
+function buildHierarchy(nodes: KnowledgeNode[]) {
+  const ids = new Set(nodes.map((node) => node.id));
+  const root = nodes.find((node) => node.parentId === null) ?? nodes[0];
+  const childrenOf = new Map<string, KnowledgeNode[]>();
+  nodes.forEach((node) => {
+    if (node.id === root.id) {
+      return;
+    }
+    const parentId =
+      node.parentId && ids.has(node.parentId) && node.parentId !== node.id ? node.parentId : root.id;
+    const children = childrenOf.get(parentId) ?? [];
+    children.push(node);
+    childrenOf.set(parentId, children);
+  });
+  return { root, childrenOf };
+}
+
+function computeRadialLayout(nodes: KnowledgeNode[]): Record<string, SpherePoint> {
+  const { root, childrenOf } = buildHierarchy(nodes);
+  const points: Record<string, SpherePoint> = { [root.id]: { x: 0, y: 0, z: 0 } };
+  const queue = [{ id: root.id, depth: 0, start: 0, end: TWO_PI }];
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const parent = queue.shift()!;
+    if (visited.has(parent.id)) {
+      continue;
+    }
+    visited.add(parent.id);
+    const children = childrenOf.get(parent.id) ?? [];
+    const slice = (parent.end - parent.start) / Math.max(1, children.length);
+    children.forEach((child, index) => {
+      if (points[child.id]) {
+        return;
+      }
+      const start = parent.start + slice * index;
+      const end = start + slice;
+      const angle = (start + end) / 2 - Math.PI / 2;
+      const radius = Math.min(MAX_RADIUS, (parent.depth + 1) * 0.36);
+      points[child.id] = {
+        x: Math.cos(angle) * radius,
+        y: Math.sin(angle) * radius,
+        z: 0,
+      };
+      queue.push({ id: child.id, depth: parent.depth + 1, start, end });
+    });
+  }
+
+  nodes.forEach((node, index) => {
+    if (!points[node.id]) {
+      const angle = (index / nodes.length) * TWO_PI;
+      points[node.id] = { x: Math.cos(angle) * MAX_RADIUS, y: Math.sin(angle) * MAX_RADIUS, z: 0 };
+    }
+  });
+  return points;
+}
+
+function computeTreeLayout(nodes: KnowledgeNode[]): Record<string, SpherePoint> {
+  const { root, childrenOf } = buildHierarchy(nodes);
+  const depths = new Map<string, number>();
+  const rows = new Map<string, number>();
+  const visited = new Set<string>();
+  let leafIndex = 0;
+  let maxDepth = 0;
+
+  const place = (id: string, depth: number) => {
+    if (visited.has(id)) {
+      return;
+    }
+    visited.add(id);
+    depths.set(id, depth);
+    maxDepth = Math.max(maxDepth, depth);
+    const children = (childrenOf.get(id) ?? []).filter((child) => !visited.has(child.id));
+    if (children.length === 0) {
+      rows.set(id, leafIndex);
+      leafIndex += 1;
+      return;
+    }
+    children.forEach((child) => place(child.id, depth + 1));
+    const childRows = children.map((child) => rows.get(child.id) ?? 0);
+    rows.set(id, childRows.reduce((sum, row) => sum + row, 0) / childRows.length);
+  };
+
+  place(root.id, 0);
+  nodes.forEach((node) => place(node.id, 0));
+  const points: Record<string, SpherePoint> = {};
+  nodes.forEach((node) => {
+    const depth = depths.get(node.id) ?? 0;
+    const row = rows.get(node.id) ?? 0;
+    points[node.id] = {
+      x: maxDepth === 0 ? 0 : -1.05 + (depth / maxDepth) * 2.1,
+      y: leafIndex <= 1 ? 0 : (row / (leafIndex - 1) - 0.5) * 2,
+      z: 0,
+    };
+  });
+  return points;
+}
+
+function computeTimelineLayout(doc: KnowledgeDoc): Record<string, SpherePoint> {
+  const ordered = doc.nodes
+    .map((node, index) => ({ node, index, time: node.lastReviewedAt ?? doc.createdAt }))
+    .sort((a, b) => a.time - b.time || a.index - b.index);
+  const points: Record<string, SpherePoint> = {};
+  ordered.forEach(({ node }, index) => {
+    const lane = index % 3;
+    points[node.id] = {
+      x: ordered.length <= 1 ? 0 : -1.08 + (index / (ordered.length - 1)) * 2.16,
+      y: lane === 0 ? -0.42 : lane === 1 ? 0 : 0.42,
+      z: 0,
+    };
+  });
+  return points;
+}
+
+export function computeGraphLayout(
+  doc: KnowledgeDoc,
+  view: GraphView,
+): Record<string, SpherePoint> {
+  if (doc.nodes.length === 0) {
+    return {};
+  }
+  if (view === 'galaxy') {
+    return computeGalaxyLayout(doc.nodes);
+  }
+  if (view === 'radial') {
+    return computeRadialLayout(doc.nodes);
+  }
+  if (view === 'tree') {
+    return computeTreeLayout(doc.nodes);
+  }
+  return computeTimelineLayout(doc);
 }
 
 export function buildGraphLinks(nodes: KnowledgeNode[], relations: Relation[]): GraphLink[] {

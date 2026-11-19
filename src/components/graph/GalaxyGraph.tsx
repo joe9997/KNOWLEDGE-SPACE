@@ -1,8 +1,10 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { DAY_MS, isDue } from '../../lib/review';
 import type { KnowledgeDoc, KnowledgeNode, Mastery } from '../../lib/types';
-import type { GraphLink, SpherePoint } from './graphLayout';
-import { buildGraphLinks, computeGalaxyLayout, GALAXY_ARMS, hash01 } from './graphLayout';
+import type { GraphLink, GraphView, SpherePoint } from './graphLayout';
+import { buildGraphLinks, computeGraphLayout, hash01 } from './graphLayout';
+import { paletteVariant } from '../../lib/learningPrefs';
+import type { PaletteTheme } from '../../lib/learningPrefs';
 
 export interface GalaxyGraphHandle {
   zoomBy: (delta: number) => void;
@@ -16,6 +18,9 @@ interface GalaxyGraphProps {
   onZoomChange: (percent: number) => void;
   /** 演示时间偏移（天）。图谱的「到期」判断要和首页「今日待复习」用同一个“现在” */
   offsetDays: number;
+  view: GraphView;
+  /** 用户选择的星球配色方案 */
+  paletteTheme: PaletteTheme;
 }
 
 interface ProjectedNode {
@@ -28,10 +33,12 @@ interface ProjectedNode {
   phase: number;
   /** 重要性 0–1：由层级、子节点数、关联数综合而来，决定星球大小 */
   weight: number;
+  /** 开屏进度 0–1：0 时星点还聚合在中心，1 时完全展开 */
+  appear: number;
   node: KnowledgeNode;
 }
 
-interface NodePalette {
+export interface NodePalette {
   core: string;
   mid: string;
   halo: string;
@@ -47,53 +54,35 @@ const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 2.6;
 const FONT_STACK = '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
 
+/** 开屏缓动：先快后缓，末端轻微过冲，像孔雀尾羽抖开到位 */
+function easeOutBack(t: number): number {
+  const c1 = 0.9;
+  const c3 = c1 + 1;
+  const p = t - 1;
+  return 1 + c3 * p * p * p + c1 * p * p;
+}
+
 /**
  * 颜色只表达「掌握度」，与是否到期无关：
- * 0 没记住 = 玫红 / 珊瑚，1 有点模糊 = 琥珀 / 金橙，2 已掌握 = 薄荷 / 青蓝。
- * 同一掌握度下有多档星光色，按节点 id 稳定分配，让星系有层次但不破坏图例语义。
+ * 0 没记住 / 1 有点模糊 / 2 已掌握。
+ * 具体色相由用户选择的配色方案决定，同一掌握度下仍保留三档星光，
+ * 按节点 id 稳定分配，让星系有层次但不破坏图例语义。
  * 到期由 drawNode 里的脉冲描边单独提示，不覆盖掌握度颜色。
  */
-const PALETTES: Record<Mastery, { dark: NodePalette[]; light: NodePalette[] }> = {
-  0: {
-    dark: [
-      { core: '#FF4D8D', mid: '#FFA8CE', halo: '255, 77, 141' },
-      { core: '#FF6B8A', mid: '#FFB7C4', halo: '255, 107, 138' },
-      { core: '#E85CC8', mid: '#FFB2EE', halo: '232, 92, 200' },
-    ],
-    light: [
-      { core: '#D6316F', mid: '#F58AB4', halo: '214, 49, 111' },
-      { core: '#C64A63', mid: '#EF9DAD', halo: '198, 74, 99' },
-      { core: '#B03E9B', mid: '#E394D8', halo: '176, 62, 155' },
-    ],
-  },
-  1: {
-    dark: [
-      { core: '#FFB020', mid: '#FFDF9A', halo: '255, 176, 32' },
-      { core: '#FF8F45', mid: '#FFC9A0', halo: '255, 143, 69' },
-      { core: '#FFD84D', mid: '#FFF2A8', halo: '255, 216, 77' },
-    ],
-    light: [
-      { core: '#B4760C', mid: '#E7B34C', halo: '180, 118, 12' },
-      { core: '#B4622B', mid: '#E29E73', halo: '180, 98, 43' },
-      { core: '#9C8710', mid: '#D8C352', halo: '156, 135, 16' },
-    ],
-  },
-  2: {
-    dark: [
-      { core: '#2FE3B0', mid: '#9BF5D9', halo: '47, 227, 176' },
-      { core: '#3FD0FF', mid: '#A5ECFF', halo: '63, 208, 255' },
-      { core: '#78E88F', mid: '#C0F7CB', halo: '120, 232, 143' },
-    ],
-    light: [
-      { core: '#12876A', mid: '#5CCBAB', halo: '18, 135, 106' },
-      { core: '#11769E', mid: '#66BBDC', halo: '17, 118, 158' },
-      { core: '#2F8C43', mid: '#7BC78C', halo: '47, 140, 67' },
-    ],
-  },
-};
+function buildPalettes(theme: PaletteTheme, light: boolean): Record<Mastery, NodePalette[]> {
+  const variants = [0, 1, 2];
+  return {
+    0: variants.map((index) => paletteVariant(theme, 0, light, index)),
+    1: variants.map((index) => paletteVariant(theme, 1, light, index)),
+    2: variants.map((index) => paletteVariant(theme, 2, light, index)),
+  };
+}
 
-function resolvePalette(node: KnowledgeNode, light: boolean): NodePalette {
-  const variants = PALETTES[node.mastery][light ? 'light' : 'dark'];
+function resolvePalette(
+  node: KnowledgeNode,
+  table: Record<Mastery, NodePalette[]>,
+): NodePalette {
+  const variants = table[node.mastery];
   const index = Math.min(
     variants.length - 1,
     Math.floor(hash01(`${node.id}:${node.mastery}`) * variants.length),
@@ -147,8 +136,46 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function colorChannels(color: string): [number, number, number] {
+  if (color.startsWith('#')) {
+    return [
+      Number.parseInt(color.slice(1, 3), 16),
+      Number.parseInt(color.slice(3, 5), 16),
+      Number.parseInt(color.slice(5, 7), 16),
+    ];
+  }
+  const channels = color.split(',').map((channel) => Number.parseFloat(channel.trim()));
+  return [channels[0] ?? 0, channels[1] ?? 0, channels[2] ?? 0];
+}
+
+function mixChannel(from: number, to: number, t: number): number {
+  return Math.round(from + (to - from) * clamp(t, 0, 1));
+}
+
+/** 评级后的星体与光晕共用同一组插值颜色，避免只变中心、光晕仍停留在旧色 */
+export function mixPalettes(from: NodePalette, to: NodePalette, progress: number): NodePalette {
+  const t = 1 - Math.pow(1 - clamp(progress, 0, 1), 3);
+  const coreFrom = colorChannels(from.core);
+  const coreTo = colorChannels(to.core);
+  const midFrom = colorChannels(from.mid);
+  const midTo = colorChannels(to.mid);
+  const haloFrom = colorChannels(from.halo);
+  const haloTo = colorChannels(to.halo);
+  const hex = (channels: [number, number, number], target: [number, number, number]) =>
+    `#${channels.map((channel, index) => mixChannel(channel, target[index], t).toString(16).padStart(2, '0')).join('')}`;
+  return {
+    core: hex(coreFrom, coreTo),
+    mid: hex(midFrom, midTo),
+    halo: haloFrom.map((channel, index) => mixChannel(channel, haloTo[index], t)).join(', '),
+  };
+}
+
+function samePalette(a: NodePalette | undefined, b: NodePalette): boolean {
+  return Boolean(a && a.core === b.core && a.mid === b.mid && a.halo === b.halo);
+}
+
 export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
-  function GalaxyGraph({ doc, selectedId, onSelect, onZoomChange, offsetDays }, ref) {
+  function GalaxyGraph({ doc, selectedId, onSelect, onZoomChange, offsetDays, view, paletteTheme }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? 'dark');
     const selectedIdRef = useRef(selectedId);
@@ -204,6 +231,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
       }
 
       const light = theme === 'light';
+      const paletteTable = buildPalettes(paletteTheme, light);
       const canvas = document.createElement('canvas');
       canvas.className = 'galaxy-canvas';
       container.appendChild(canvas);
@@ -215,6 +243,12 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
       let layout: Record<string, SpherePoint> = {};
       let links: GraphLink[] = [];
       let palettes = new Map<string, NodePalette>();
+      let targetPalettes = new Map<string, NodePalette>();
+      const paletteTransitions = new Map<
+        string,
+        { from: NodePalette; to: NodePalette; start: number | null }
+      >();
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       let importance = new Map<string, number>();
       let dueIds = new Set<string>();
 
@@ -227,14 +261,37 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         );
       };
 
-      // 颜色跟着掌握度走：重新评级后调用一次，节点星光颜色原地更新
+      // 布局与到期集合原地更新；掌握度颜色从当前显示色平滑过渡到目标色
       const syncScene = () => {
         const current = docRef.current;
-        layout = computeGalaxyLayout(current.nodes);
+        layout = computeGraphLayout(current, view);
         links = buildGraphLinks(current.nodes, current.relations);
-        palettes = new Map(
-          current.nodes.map((node) => [node.id, resolvePalette(node, theme === 'light')]),
+        const nextTargets = new Map(
+          current.nodes.map((node) => [node.id, resolvePalette(node, paletteTable)]),
         );
+        current.nodes.forEach((node) => {
+          const target = nextTargets.get(node.id)!;
+          const previousTarget = targetPalettes.get(node.id);
+          const displayed = palettes.get(node.id);
+          if (samePalette(previousTarget, target)) {
+            return;
+          }
+          if (!displayed || reducedMotion) {
+            palettes.set(node.id, target);
+            paletteTransitions.delete(node.id);
+            return;
+          }
+          // 弹窗期间先记录目标色，关闭后再启动，保证用户能看到完整「开灯」过程
+          paletteTransitions.set(node.id, { from: displayed, to: target, start: null });
+        });
+        const ids = new Set(current.nodes.map((node) => node.id));
+        for (const id of palettes.keys()) {
+          if (!ids.has(id)) {
+            palettes.delete(id);
+            paletteTransitions.delete(id);
+          }
+        }
+        targetPalettes = nextTargets;
         importance = computeImportance(current);
         refreshDue();
       };
@@ -249,13 +306,17 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
       let width = 0;
       let height = 0;
       let dpr = 1;
-      let theta = DEFAULT_THETA;
-      let phi = DEFAULT_PHI;
+      let theta = view === 'galaxy' ? DEFAULT_THETA : 0;
+      let phi = view === 'galaxy' ? DEFAULT_PHI : 0;
+      let panX = 0;
+      let panY = 0;
       let zoom = 1;
       let raf = 0;
       let projected: ProjectedNode[] = [];
       let hoveredId: string | null = null;
       let lastStatusAt = 0;
+      // 进入页面后从中心单点「开屏」，时间戳在第一帧确定
+      let bloomAt: number | null = null;
       let drag: { x: number; y: number; moved: boolean; pointerId: number } | null = null;
       // 鼠标视差：背景星空缓慢跟随指针，营造「身处宇宙」的纵深感（节点不移动，不影响阅读）
       const pointer = { x: 0, y: 0 };
@@ -353,74 +414,6 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         }
       };
 
-      // 星系盘贴图：正面对着画一次旋臂 + 核球，之后每帧只做旋转 / 压扁，和节点共用同一套投影
-      const disc = document.createElement('canvas');
-      const discCtx = disc.getContext('2d');
-      const DISC_SIZE = 1024;
-
-      const renderGalaxyDisc = () => {
-        if (!discCtx) {
-          return;
-        }
-        disc.width = DISC_SIZE;
-        disc.height = DISC_SIZE;
-        const center = DISC_SIZE / 2;
-        const maxR = center;
-        discCtx.clearRect(0, 0, DISC_SIZE, DISC_SIZE);
-
-        // 旋臂星尘：越靠外越稀薄，转角与 computeGalaxyLayout 的旋臂公式一致
-        discCtx.globalCompositeOperation = 'lighter';
-        const starCount = 6000;
-        for (let index = 0; index < starCount; index += 1) {
-          const arm = index % GALAXY_ARMS;
-          const t = Math.pow(hash01(`arm-r-${index}`), 0.62);
-          const unitRadius = 0.05 + t * 0.95;
-          const radius = unitRadius * maxR * 0.96;
-          const theta =
-            (arm / GALAXY_ARMS) * TWO_PI +
-            unitRadius * 2.6 +
-            (hash01(`arm-a-${index}`) - 0.5) * (0.3 + t * 0.34);
-          const x = center + Math.cos(theta) * radius;
-          const y = center + Math.sin(theta) * radius;
-          const size = 0.4 + hash01(`arm-s-${index}`) * (1.15 - t * 0.65);
-          const alpha = (0.16 + hash01(`arm-o-${index}`) * 0.6) * (1 - t * 0.4);
-          const warm = hash01(`arm-w-${index}`) > 0.86;
-          discCtx.fillStyle = warm
-            ? `rgba(255, 216, 160, ${alpha * (light ? 0.7 : 0.85)})`
-            : light
-              ? `rgba(58, 102, 172, ${alpha * 0.9})`
-              : `rgba(198, 224, 255, ${alpha})`;
-          discCtx.beginPath();
-          discCtx.arc(x, y, size, 0, TWO_PI);
-          discCtx.fill();
-        }
-        discCtx.globalCompositeOperation = 'source-over';
-
-        // 核球：暖白椭圆光，压扁后就是星系中央的棒状亮核
-        const bulge = discCtx.createRadialGradient(center, center, 0, center, center, maxR * 0.36);
-        if (light) {
-          bulge.addColorStop(0, 'rgba(255, 236, 196, 0.95)');
-          bulge.addColorStop(0.3, 'rgba(255, 210, 150, 0.6)');
-          bulge.addColorStop(0.66, 'rgba(214, 160, 96, 0.22)');
-          bulge.addColorStop(1, 'rgba(200, 150, 90, 0)');
-        } else {
-          bulge.addColorStop(0, 'rgba(255, 247, 226, 0.95)');
-          bulge.addColorStop(0.3, 'rgba(255, 226, 172, 0.6)');
-          bulge.addColorStop(0.66, 'rgba(255, 198, 122, 0.2)');
-          bulge.addColorStop(1, 'rgba(255, 190, 120, 0)');
-        }
-        discCtx.save();
-        discCtx.translate(center, center);
-        discCtx.rotate(0.45);
-        discCtx.scale(1, 0.44);
-        discCtx.fillStyle = bulge;
-        discCtx.beginPath();
-        discCtx.arc(0, 0, maxR * 0.36, 0, TWO_PI);
-        discCtx.fill();
-        discCtx.restore();
-      };
-      renderGalaxyDisc();
-
       const resize = () => {
         const rect = container.getBoundingClientRect();
         width = Math.max(1, rect.width);
@@ -438,6 +431,15 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
       resize();
 
       const project = (point: { x: number; y: number; z: number }, fit: number) => {
+        if (view !== 'galaxy') {
+          const scale = fit * zoom;
+          return {
+            sx: width / 2 + point.x * WORLD_RADIUS * scale + panX,
+            sy: height * 0.47 + point.y * WORLD_RADIUS * scale + panY,
+            depth: point.z,
+            scale,
+          };
+        }
         const cosY = Math.cos(theta);
         const sinY = Math.sin(theta);
         const x1 = point.x * cosY - point.z * sinY;
@@ -572,16 +574,21 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           ctx.fillRect(0, 0, width, height);
         }
 
-        // 星系盘：把正面贴图按同一投影旋转、压扁，旋臂始终和节点对齐
-        if (discCtx) {
-          const discRadius = focal * 0.62;
-          ctx.save();
-          ctx.translate(width / 2, height * 0.47);
-          ctx.rotate(theta);
-          ctx.scale(1, Math.max(0.3, Math.sin(phi)));
-          ctx.globalAlpha = light ? 0.95 : 1;
-          ctx.drawImage(disc, -discRadius, -discRadius, discRadius * 2, discRadius * 2);
-          ctx.restore();
+        // 浅色主题：极缓流动的柔光，让大片留白像有呼吸的雾面玻璃，而不是一块空背景
+        if (light) {
+          const tints = ['120, 170, 255', '255, 170, 200', '150, 230, 215'];
+          for (let index = 0; index < tints.length; index += 1) {
+            const phase = time * (0.05 + index * 0.017) + index * 2.1;
+            const cx = width * (0.5 + Math.cos(phase) * 0.22) + bgX * 0.6;
+            const cy = height * (0.46 + Math.sin(phase * 0.8) * 0.2) + bgY * 0.6;
+            const radius = Math.max(width, height) * (0.3 + index * 0.07);
+            const shimmer = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+            shimmer.addColorStop(0, `rgba(${tints[index]}, 0.12)`);
+            shimmer.addColorStop(0.55, `rgba(${tints[index]}, 0.05)`);
+            shimmer.addColorStop(1, `rgba(${tints[index]}, 0)`);
+            ctx.fillStyle = shimmer;
+            ctx.fillRect(0, 0, width, height);
+          }
         }
 
         if (dustCtx && dustSize > 0) {
@@ -622,9 +629,10 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           const controlX = (from.sx + to.sx) / 2 + normalX * bend;
           const controlY = (from.sy + to.sy) / 2 + normalY * bend;
           const nearness = (from.depth + to.depth) / 2 / 2 + 0.5;
+          const appear = Math.min(from.appear, to.appear);
           const related =
             selectedIdRef.current === link.from || selectedIdRef.current === link.to;
-          const alpha = clamp(0.13 + nearness * 0.24 + (related ? 0.22 : 0), 0, 0.62);
+          const alpha = clamp(0.13 + nearness * 0.24 + (related ? 0.22 : 0), 0, 0.62) * appear;
 
           ctx.save();
           ctx.beginPath();
@@ -659,13 +667,15 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           ctx.stroke();
           ctx.restore();
 
-          if (link.kind === 'tree') {
+          if (link.kind === 'tree' && appear > 0.02) {
             const progress = (time * 0.075 + index * 0.17) % 1;
             const inv = 1 - progress;
             const px =
               inv * inv * from.sx + 2 * inv * progress * controlX + progress * progress * to.sx;
             const py =
               inv * inv * from.sy + 2 * inv * progress * controlY + progress * progress * to.sy;
+            ctx.save();
+            ctx.globalAlpha = appear;
             const glow = ctx.createRadialGradient(px, py, 0, px, py, 5.5);
             const tint = palettes.get(link.to);
             glow.addColorStop(0, light ? 'rgba(255, 255, 255, 0.95)' : 'rgba(226, 240, 255, 0.95)');
@@ -682,6 +692,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
             ctx.beginPath();
             ctx.arc(px, py, 5.5, 0, Math.PI * 2);
             ctx.fill();
+            ctx.restore();
           }
         });
       };
@@ -739,7 +750,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
       };
 
       const drawNode = (entry: ProjectedNode, time: number) => {
-        const palette = palettes.get(entry.id) ?? resolvePalette(entry.node, light);
+        const palette = palettes.get(entry.id) ?? resolvePalette(entry.node, paletteTable);
         const selected = selectedIdRef.current === entry.id;
         const hovered = hoveredId === entry.id;
         const active = selected || hovered;
@@ -747,10 +758,11 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         const alpha = (0.55 + nearness * 0.45) * (active ? 1 : 0.94);
         const radius = entry.radius * (selected ? 1.18 : hovered ? 1.1 : 1);
         const haloRadius = radius * (entry.node.parentId === null ? 4.4 : 3.7);
-        const breath = 1 + 0.07 * Math.sin(time * 1.9 + entry.phase);
+        // 呼吸幅度略微加大，让中心星球一眼能看出在起伏
+        const breath = 1 + 0.11 * Math.sin(time * 1.6 + entry.phase);
 
         ctx.save();
-        ctx.globalAlpha = alpha;
+        ctx.globalAlpha = alpha * entry.appear;
 
         if (selected && rippleRef.current?.id === entry.id) {
           const elapsed = (performance.now() - rippleRef.current.start) / 1000;
@@ -818,13 +830,34 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         ctx.arc(entry.sx, entry.sy, coreRadius, 0, Math.PI * 2);
         ctx.fill();
 
-        drawFlare(entry, palette, alpha, time);
+        // 球体自转：高光沿球面缓慢扫过，让圆球看起来是立体的、一直在转
+        if (coreRadius > 5.5) {
+          const spin = time * (0.5 + hash01(`${entry.id}:spin`) * 0.45) + entry.phase;
+          const hx = entry.sx + Math.cos(spin) * coreRadius * 0.4;
+          const hy = entry.sy + Math.sin(spin) * coreRadius * 0.46;
+          const shine = ctx.createRadialGradient(hx, hy, 0, hx, hy, coreRadius * 0.62);
+          shine.addColorStop(0, 'rgba(255, 255, 255, 0.92)');
+          shine.addColorStop(0.42, 'rgba(255, 255, 255, 0.3)');
+          shine.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          ctx.save();
+          ctx.globalAlpha = light ? 0.8 : 0.95;
+          ctx.beginPath();
+          ctx.arc(entry.sx, entry.sy, coreRadius * 0.94, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.fillStyle = shine;
+          ctx.beginPath();
+          ctx.arc(hx, hy, coreRadius * 0.62, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        drawFlare(entry, palette, alpha * entry.appear, time);
 
         // 到期不改掌握度颜色，只在外圈加一圈脉冲虚线提醒
         if (dueIds.has(entry.id)) {
           const pulse = (Math.sin(time * 2.6) + 1) * 0.5;
           ctx.save();
-          ctx.globalAlpha = alpha * (0.55 + pulse * 0.45);
+          ctx.globalAlpha = alpha * entry.appear * (0.55 + pulse * 0.45);
           ctx.strokeStyle = ringColor;
           ctx.lineWidth = 1.3;
           ctx.setLineDash([2.5, 3.5]);
@@ -838,11 +871,18 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
 
         const isRoot = entry.node.parentId === null;
         const fontSize = isRoot ? 17 : 11.5 + clamp(entry.weight, 0, 1) * 2.5;
-        // 非核心节点的标签沿「中心 → 节点」方向往外放，避免全部堆在星系中央
         let labelX = entry.sx;
         let labelY = entry.sy + radius + 27;
         let align: CanvasTextAlign = 'center';
-        if (!isRoot) {
+        if (view === 'tree') {
+          labelX = entry.sx + radius + 12;
+          labelY = entry.sy;
+          align = 'left';
+        } else if (view === 'timeline') {
+          const direction = hash01(`${entry.id}:label`) > 0.5 ? 1 : -1;
+          labelY = entry.sy + direction * (radius + 20);
+        } else if (!isRoot) {
+          // 星系与辐射图的标签沿「中心 → 节点」方向往外放
           const nx = entry.sx - width / 2;
           const ny = entry.sy - height * 0.47;
           const length = Math.hypot(nx, ny) || 1;
@@ -851,7 +891,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           align = nx >= 0 ? 'left' : 'right';
         }
         ctx.save();
-        ctx.globalAlpha = clamp(alpha + 0.08, 0, 1);
+        ctx.globalAlpha = clamp((alpha + 0.08) * entry.appear, 0, 1);
         ctx.font = `${selected || isRoot ? 600 : 500} ${fontSize}px ${FONT_STACK}`;
         ctx.textAlign = align;
         ctx.textBaseline = 'middle';
@@ -872,6 +912,10 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
       const hitTest = (x: number, y: number): string | null => {
         let best: ProjectedNode | null = null;
         for (const entry of projected) {
+          // 开屏过程中星点还挤在中心，先不响应点击，避免误选
+          if (entry.appear < 0.55) {
+            continue;
+          }
           const distance = Math.hypot(x - entry.sx, y - entry.sy);
           if (distance <= Math.max(18, entry.radius + 10)) {
             if (!best || entry.depth > best.depth) {
@@ -882,8 +926,142 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         return best?.id ?? null;
       };
 
+      const drawTimelineAxis = (fit: number) => {
+        const current = docRef.current;
+        const times = current.nodes
+          .map((node) => node.lastReviewedAt ?? current.createdAt)
+          .filter((time) => Number.isFinite(time));
+        if (times.length === 0) {
+          return;
+        }
+        const min = Math.min(...times);
+        const max = Math.max(...times);
+        const left = project({ x: -1.12, y: 0, z: 0 }, fit).sx;
+        const right = project({ x: 1.12, y: 0, z: 0 }, fit).sx;
+        const y = height - 68;
+        ctx.save();
+        ctx.strokeStyle = light ? 'rgba(65, 90, 125, 0.24)' : 'rgba(170, 200, 240, 0.22)';
+        ctx.fillStyle = light ? '#667A93' : '#9FB1C9';
+        ctx.lineWidth = 1;
+        ctx.font = `11px ${FONT_STACK}`;
+        ctx.beginPath();
+        ctx.moveTo(left, y);
+        ctx.lineTo(right, y);
+        ctx.stroke();
+        ctx.textAlign = 'left';
+        ctx.fillText(new Date(min).toLocaleDateString('zh-CN'), left, y + 20);
+        ctx.textAlign = 'right';
+        ctx.fillText(new Date(max).toLocaleDateString('zh-CN'), right, y + 20);
+        ctx.textAlign = 'center';
+        ctx.fillText('未复习节点按资料创建时间排列', (left + right) / 2, y + 20);
+        ctx.restore();
+      };
+
+      // 轨道环：根节点周围的极淡椭圆轨，像这片知识星系的引力线，缓慢自转
+      const drawOrbits = (time: number, fit: number) => {
+        if (view !== 'galaxy' && view !== 'radial') {
+          return;
+        }
+        const nodes = docRef.current.nodes;
+        const root = nodes.find((node) => node.parentId === null) ?? nodes[0];
+        if (!root) {
+          return;
+        }
+        const point = layout[root.id];
+        if (!point) {
+          return;
+        }
+        const center = project(point, fit);
+        const base = Math.min(width, height) * fit;
+        ctx.save();
+        for (let index = 0; index < 3; index += 1) {
+          const rx = base * (0.2 + index * 0.12);
+          const ry = view === 'galaxy' ? rx * 0.55 : rx;
+          ctx.save();
+          ctx.translate(center.sx, center.sy);
+          ctx.rotate(time * (0.05 + index * 0.015) + index * 0.9);
+          ctx.beginPath();
+          ctx.ellipse(0, 0, rx, ry, 0, 0, TWO_PI);
+          ctx.setLineDash(index === 0 ? [3, 9] : [2, 13]);
+          ctx.lineWidth = index === 0 ? 1.2 : 1;
+          ctx.strokeStyle = light
+            ? `rgba(62, 112, 182, ${0.3 - index * 0.06})`
+            : `rgba(158, 205, 255, ${0.22 - index * 0.05})`;
+          ctx.stroke();
+
+          // 沿轨道缓慢巡游的光点，让轨道环一眼就能看出在动
+          const runner = time * (0.34 + index * 0.09) + index * 1.7;
+          const dotX = Math.cos(runner) * rx;
+          const dotY = Math.sin(runner) * ry;
+          const glow = ctx.createRadialGradient(dotX, dotY, 0, dotX, dotY, 9);
+          glow.addColorStop(0, light ? 'rgba(255, 255, 255, 0.98)' : 'rgba(240, 248, 255, 0.98)');
+          glow.addColorStop(0.32, light ? 'rgba(84, 146, 219, 0.6)' : 'rgba(140, 196, 255, 0.7)');
+          glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, 9, 0, TWO_PI);
+          ctx.fill();
+          ctx.fillStyle = light ? 'rgba(38, 92, 158, 0.9)' : 'rgba(235, 246, 255, 0.95)';
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, 1.8, 0, TWO_PI);
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.restore();
+      };
+
+      // 星尘微粒：围绕节点缓慢公转的小光点，让稀疏的小图也保持「活着」的动感
+      const drawMotes = (time: number, entries: ProjectedNode[]) => {
+        if (entries.length > 36) {
+          return;
+        }
+        ctx.save();
+        for (const entry of entries) {
+          if (entry.appear < 0.5) {
+            continue;
+          }
+          const count = entry.node.parentId === null ? 5 : 2;
+          const palette = palettes.get(entry.id);
+          for (let index = 0; index < count; index += 1) {
+            const phase = hash01(`${entry.id}:mote-${index}`) * TWO_PI;
+            const speed = 0.22 + hash01(`${entry.id}:mote-s-${index}`) * 0.34;
+            const orbit = entry.radius * (1.9 + index * 0.72);
+            const angle = time * speed + phase;
+            const x = entry.sx + Math.cos(angle) * orbit;
+            const y = entry.sy + Math.sin(angle) * orbit * (view === 'galaxy' ? 0.7 : 1);
+            const size = 1.1 + hash01(`${entry.id}:mote-r-${index}`) * 1.5;
+            const twinkle = 0.4 + 0.6 * Math.sin(time * 1.7 + phase);
+            ctx.globalAlpha = clamp(twinkle, 0, 1) * 0.75 * entry.appear;
+            ctx.fillStyle = palette
+              ? `rgba(${palette.halo}, 0.9)`
+              : light
+                ? 'rgba(60, 110, 180, 0.8)'
+                : 'rgba(220, 235, 255, 0.85)';
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, TWO_PI);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      };
+
       const drawFrame = (timestamp: number) => {
         const time = timestamp / 1000;
+        for (const [id, transition] of paletteTransitions) {
+          if (transition.start === null) {
+            if (document.body.classList.contains('has-modal')) {
+              continue;
+            }
+            transition.start = timestamp;
+          }
+          const progress = clamp((timestamp - transition.start) / 800, 0, 1);
+          if (progress >= 1) {
+            palettes.set(id, transition.to);
+            paletteTransitions.delete(id);
+          } else {
+            palettes.set(id, mixPalettes(transition.from, transition.to, progress));
+          }
+        }
         // 每 2 秒重算一次到期集合：页面跨天、演示时间变化都能跟上
         if (timestamp - lastStatusAt > 2000) {
           refreshDue();
@@ -898,29 +1076,59 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, width, height);
         drawBackground(time);
+        drawOrbits(time, fit);
+        if (view === 'timeline') {
+          drawTimelineAxis(fit);
+        }
+
+        if (bloomAt === null) {
+          bloomAt = timestamp;
+        }
+        const bloomAge = timestamp - bloomAt;
+        // 开屏收尾后只有星系视图保留缓慢漂移，树形图和时间线保持稳定便于阅读
+        const settle = view === 'galaxy' ? clamp((bloomAge - 1600) / 1800, 0, 1) : 0;
+        const centerX = width / 2;
+        const centerY = height * 0.47;
 
         const entries = docRef.current.nodes.map((node) => {
           const point = layout[node.id] ?? { x: 0, y: 0, z: 0 };
           const projection = project(point, fit);
           const weight = importance.get(node.id) ?? 0;
           // 星体大小由重要性决定，只保留很小的个体抖动
-          const base = node.parentId === null ? 19 : 9.5 + weight * 7.5;
+          const base = (node.parentId === null ? 19 : 9.5 + weight * 7.5) * (view === 'galaxy' ? 1 : 0.78);
           const spark = 0.94 + hash01(`${node.id}:size`) * 0.12;
+          // 错峰展开：核心先亮，越外层越晚，个体再带一点随机延迟
+          const delay = node.parentId === null ? 0 : 140 + projection.depth * 190 + hash01(`${node.id}:bloom`) * 260;
+          const local = clamp((bloomAge - delay) / 1150, 0, 1);
+          const open = Math.max(0, easeOutBack(local));
+          const appear = clamp(local * 1.4, 0, 1);
+          const driftPhase = hash01(`${node.id}:drift`) * TWO_PI;
+          const driftSpeed = 0.34 + hash01(`${node.id}:driftspeed`) * 0.26;
+          const driftAmp = (4.6 + weight * 5.2) * fit * settle;
+          const driftX = Math.sin(time * driftSpeed + driftPhase) * driftAmp;
+          const driftY = Math.cos(time * driftSpeed * 0.83 + driftPhase * 1.6) * driftAmp * 0.7;
           return {
             id: node.id,
             node,
-            sx: projection.sx,
-            sy: projection.sy,
+            sx: centerX + (projection.sx - centerX) * open + driftX,
+            sy: centerY + (projection.sy - centerY) * open + driftY,
             depth: projection.depth,
-            radius: base * spark * projection.scale * (fit < 0.9 ? 0.9 : 1),
+            radius:
+              base *
+              spark *
+              projection.scale *
+              (fit < 0.9 ? 0.9 : 1) *
+              (0.18 + 0.82 * clamp(open, 0, 1)),
             phase: hash01(`${node.id}:phase`) * TWO_PI,
             weight,
+            appear,
           } as ProjectedNode;
         });
         projected = entries;
         const byId = new Map(entries.map((entry) => [entry.id, entry]));
 
         drawEdges(time, byId);
+        drawMotes(time, entries);
 
         const ordered = [...entries].sort((a, b) => a.depth - b.depth);
         for (const entry of ordered) {
@@ -935,8 +1143,10 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         onZoomChangeRef.current(Math.round(zoom * 100));
       };
       resetRef.current = () => {
-        theta = DEFAULT_THETA;
-        phi = DEFAULT_PHI;
+        theta = view === 'galaxy' ? DEFAULT_THETA : 0;
+        phi = view === 'galaxy' ? DEFAULT_PHI : 0;
+        panX = 0;
+        panY = 0;
         zoom = 1;
         onZoomChangeRef.current(100);
       };
@@ -958,8 +1168,13 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           if (Math.abs(dx) + Math.abs(dy) > 3) {
             drag.moved = true;
           }
-          theta += dx * 0.0075;
-          phi = clamp(phi + dy * 0.0055, -1.15, 1.15);
+          if (view === 'galaxy') {
+            theta += dx * 0.0075;
+            phi = clamp(phi + dy * 0.0055, -1.15, 1.15);
+          } else {
+            panX += dx;
+            panY += dy;
+          }
           drag.x = event.clientX;
           drag.y = event.clientY;
           return;
@@ -1018,7 +1233,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           container.removeChild(canvas);
         }
       };
-    }, [theme]);
+    }, [theme, view, paletteTheme]);
 
     return (
       <div
@@ -1026,7 +1241,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         ref={containerRef}
         data-testid="graph-canvas"
         role="img"
-        aria-label="知识星系，拖动旋转、滚轮缩放，点击星点查看内容"
+        aria-label={view === 'galaxy' ? '知识星系，拖动旋转、滚轮缩放，点击星点查看内容' : '知识图谱，拖动平移、滚轮缩放，点击节点查看内容'}
       />
     );
   },

@@ -1,9 +1,12 @@
+import { DEFAULT_PREFS, normalizePrefs } from './learningPrefs';
+import type { LearningPrefs } from './learningPrefs';
 import type { KnowledgeDoc, ThemeMode } from './types';
 
 const DOCS_KEY = 'huiyuan.docs.v1';
 const ACTIVE_KEY = 'huiyuan.activeDoc.v1';
 const THEME_KEY = 'huiyuan.theme';
 const API_KEY = 'huiyuan.api.session.v1';
+const PREFS_KEY = 'huiyuan.learning.v1';
 
 function docsKey(userId: string): string {
   return `${DOCS_KEY}.${userId}`;
@@ -65,6 +68,22 @@ export function loadTheme(): ThemeMode {
 
 export function saveTheme(theme: ThemeMode): void {
   localStorage.setItem(THEME_KEY, theme);
+}
+
+function prefsKey(userId: string): string {
+  return `${PREFS_KEY}.${userId}`;
+}
+
+export function loadLearningPrefs(userId: string): LearningPrefs {
+  return normalizePrefs(safeParse<unknown>(localStorage.getItem(prefsKey(userId)))) ?? DEFAULT_PREFS;
+}
+
+export function saveLearningPrefs(userId: string, prefs: LearningPrefs): void {
+  try {
+    localStorage.setItem(prefsKey(userId), JSON.stringify(prefs));
+  } catch (error) {
+    console.warn('保存学习偏好失败', error);
+  }
 }
 
 /** API 配置按用户隔离（BYOK 的 key 只在当前标签页 sessionStorage，刷新即失效） */

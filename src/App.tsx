@@ -12,17 +12,21 @@ import { NewSessionPage } from './pages/NewSessionPage';
 import { SettingsPage } from './pages/SettingsPage';
 import type { SettingsSection } from './pages/SettingsPage';
 import { isDue } from './lib/review';
+import type { QuizMode } from './lib/quizBank';
 import type { AppView } from './lib/types';
 import { useMediaQuery } from './lib/useMediaQuery';
 import { useApp } from './state/AppStore';
 
 export default function App() {
-  const { activeDoc, activeDocId, now, resetDemo, setActiveDocId, currentUser, authLoading } =
+  const { activeDoc, activeDocId, now, resetDemo, setActiveDocId, currentUser, authLoading, learningPrefs } =
     useApp();
   const isMobile = useMediaQuery('(max-width: 900px)');
   const [view, setView] = useState<AppView>('home');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [quizQueue, setQuizQueue] = useState<string[] | null>(null);
+  const [quizSession, setQuizSession] = useState<{
+    queue: string[];
+    mode: QuizMode | null;
+  } | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('user');
 
@@ -58,7 +62,7 @@ export default function App() {
 
   const openReview = useCallback(() => {
     setSidebarOpen(false);
-    setQuizQueue(dueNodeIds);
+    setQuizSession({ queue: dueNodeIds, mode: 'self' });
   }, [dueNodeIds]);
 
   useEffect(() => {
@@ -159,14 +163,20 @@ export default function App() {
                     openNewSession();
                   }
                 }}
-                onStartReview={(nodeIds) => setQuizQueue(nodeIds)}
+                onStartReview={(nodeIds) => setQuizSession({ queue: nodeIds, mode: 'self' })}
               />
             )}
 
             {view === 'graph' && (
               <GraphPage
                 doc={activeDoc}
-                onStartQuiz={(nodeIds) => setQuizQueue(nodeIds)}
+                onStartQuiz={(nodeIds) => setQuizSession({ queue: nodeIds, mode: 'self' })}
+                onOpenQuizBank={(nodeIds) =>
+                  setQuizSession({
+                    queue: nodeIds,
+                    mode: learningPrefs.quizMode === 'ask' ? null : learningPrefs.quizMode,
+                  })
+                }
                 onNavigate={navigate}
               />
             )}
@@ -199,10 +209,11 @@ export default function App() {
       </div>
 
       <QuizModal
-        open={quizQueue !== null}
+        open={quizSession !== null}
         doc={activeDoc}
-        queue={quizQueue ?? []}
-        onClose={() => setQuizQueue(null)}
+        queue={quizSession?.queue ?? []}
+        initialMode={quizSession?.mode ?? null}
+        onClose={() => setQuizSession(null)}
       />
 
       <AssistantChat
