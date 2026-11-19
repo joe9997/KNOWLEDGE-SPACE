@@ -128,11 +128,11 @@ GitHub 上开 PR → CI 绿 → 1 人 Approve → Squash merge（自动删分支
 | 文档、节点、复习进度 | `localStorage`（`huiyuan.docs.v1` 等） | 留在当前浏览器 |
 | 当前会话 | `localStorage` | 重新打开仍保留 |
 | 主题 | `localStorage`（`huiyuan.theme`） | 重新打开仍保留 |
-| API 配置与 Key | `sessionStorage`（`huiyuan.api.session.v1`） | 仅当前标签页，关闭即清除 |
+| API 配置与 Key | `localStorage`（`huiyuan.api.session.v1.<userId>`） | 按账号绑定，下次打开自动带出 |
 | 服务端模型 Key | `.env`（仅后端进程读取） | 不返回浏览器，不写入日志 |
 | 演示时间偏移 | 内存状态 | 刷新后回到今天 |
 
-- 自带 Key 模式的 API Key **不会**写入源码或 `localStorage`，只留在当前标签页的 `sessionStorage`；服务端模式的 Key 只在 `.env` 中，由后端进程读取。
+- 自带 Key 模式的 API Key **不会**写入源码，只按用户 ID 存在本浏览器的 `localStorage`；服务端模式的 Key 只在 `.env` 中，由后端进程读取。
 - 服务端模式：材料会发送到本地后端，再由后端转发到 `.env` 配置的模型服务；自带 Key 模式：材料由浏览器**直接发送到你填写的模型服务**。使用者需自行确认该服务的隐私政策。
 - 示例材料「证据法讲义 · 证明责任」在侧栏、页面头部与导出内容中均标注为「体验材料」。
 

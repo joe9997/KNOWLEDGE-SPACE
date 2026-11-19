@@ -19,6 +19,7 @@ describe('个性化学习偏好', () => {
       palette: 'sakura',
       rhythm: 'sprint',
       quizMode: 'self',
+      graphView: 'galaxy',
       baseDays: 1,
     });
   });

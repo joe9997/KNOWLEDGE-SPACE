@@ -5,6 +5,7 @@ import type { PaletteTheme } from '../../lib/learningPrefs';
 import type { GraphView } from './graphLayout';
 import { GalaxyGraph } from './GalaxyGraph';
 import type { GalaxyGraphHandle } from './GalaxyGraph';
+import { VennGraph } from './VennGraph';
 
 interface KnowledgeGraphProps {
   doc: KnowledgeDoc;
@@ -13,6 +14,8 @@ interface KnowledgeGraphProps {
   onExport: () => void;
   offsetDays: number;
   paletteTheme: PaletteTheme;
+  view: GraphView;
+  onViewChange: (view: GraphView) => void;
 }
 
 export function KnowledgeGraph({
@@ -22,12 +25,13 @@ export function KnowledgeGraph({
   onExport,
   offsetDays,
   paletteTheme,
+  view,
+  onViewChange,
 }: KnowledgeGraphProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const galaxyRef = useRef<GalaxyGraphHandle>(null);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [view, setView] = useState<GraphView>('galaxy');
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -55,16 +59,26 @@ export function KnowledgeGraph({
 
   return (
     <div className="graph-shell" ref={shellRef}>
-      <GalaxyGraph
-        ref={galaxyRef}
-        doc={doc}
-        selectedId={selectedId}
-        onSelect={onSelect}
-        onZoomChange={setZoomPercent}
-        offsetDays={offsetDays}
-        view={view}
-        paletteTheme={paletteTheme}
-      />
+      {view === 'venn' ? (
+        <VennGraph
+          doc={doc}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          offsetDays={offsetDays}
+          paletteTheme={paletteTheme}
+        />
+      ) : (
+        <GalaxyGraph
+          ref={galaxyRef}
+          doc={doc}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          onZoomChange={setZoomPercent}
+          offsetDays={offsetDays}
+          view={view}
+          paletteTheme={paletteTheme}
+        />
+      )}
 
       <div className="graph-view-switcher" aria-label="图谱视图类型">
         {([
@@ -72,20 +86,27 @@ export function KnowledgeGraph({
           ['radial', '辐射图'],
           ['tree', '树形图'],
           ['timeline', '时间线'],
+          ['venn', '韦恩图'],
         ] as Array<[GraphView, string]>).map(([value, label]) => (
           <button
             key={value}
             type="button"
             className="graph-view-button"
             aria-pressed={view === value}
-            onClick={() => setView(value)}
+            onClick={() => onViewChange(value)}
           >
             {label}
           </button>
         ))}
       </div>
 
-      <p className="graph-hint">{view === 'galaxy' ? '拖动旋转星系' : '拖动平移图谱'} · 滚轮缩放 · 点击节点查看原文</p>
+      <p className="graph-hint">
+        {view === 'venn'
+          ? '每个圆是一级主题，交叠处是彼此关联的概念 · 点击节点查看原文'
+          : view === 'galaxy'
+            ? '拖动旋转星系 · 滚轮缩放 · 点击节点查看原文'
+            : '拖动平移图谱 · 滚轮缩放 · 点击节点查看原文'}
+      </p>
 
       {doc.nodes.length === 0 && (
         <p className="source-panel__empty" style={{ position: 'absolute', inset: 0 }}>
@@ -115,36 +136,40 @@ export function KnowledgeGraph({
 
         <div className="graph-toolbar__right">
           <div className="graph-tools">
-            <button
-              type="button"
-              className="tool-button"
-              onClick={() => galaxyRef.current?.zoomBy(-1)}
-              disabled={zoomPercent <= 60}
-              aria-label="缩小"
-              title="缩小"
-            >
-              <ZoomOut size={15} />
-            </button>
-            <span className="zoom-value">{zoomPercent}%</span>
-            <button
-              type="button"
-              className="tool-button"
-              onClick={() => galaxyRef.current?.zoomBy(1)}
-              disabled={zoomPercent >= 260}
-              aria-label="放大"
-              title="放大"
-            >
-              <ZoomIn size={15} />
-            </button>
-            <button
-              type="button"
-              className="tool-button"
-              onClick={() => galaxyRef.current?.reset()}
-              aria-label="重置视图"
-              title="重置视图"
-            >
-              <RotateCcw size={14} />
-            </button>
+            {view !== 'venn' && (
+              <>
+                <button
+                  type="button"
+                  className="tool-button"
+                  onClick={() => galaxyRef.current?.zoomBy(-1)}
+                  disabled={zoomPercent <= 60}
+                  aria-label="缩小"
+                  title="缩小"
+                >
+                  <ZoomOut size={15} />
+                </button>
+                <span className="zoom-value">{zoomPercent}%</span>
+                <button
+                  type="button"
+                  className="tool-button"
+                  onClick={() => galaxyRef.current?.zoomBy(1)}
+                  disabled={zoomPercent >= 260}
+                  aria-label="放大"
+                  title="放大"
+                >
+                  <ZoomIn size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="tool-button"
+                  onClick={() => galaxyRef.current?.reset()}
+                  aria-label="重置视图"
+                  title="重置视图"
+                >
+                  <RotateCcw size={14} />
+                </button>
+              </>
+            )}
             <button
               type="button"
               className="tool-button"

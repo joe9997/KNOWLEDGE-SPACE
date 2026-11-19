@@ -1687,6 +1687,8 @@ ul {
   align-items: flex-end;
   gap: 18px;
   flex-wrap: wrap;
+  /* 统计与按钮整组向左收一点，不再贴着右边缘 */
+  margin-right: 16px;
 }
 
 .graph-stats {
@@ -2231,6 +2233,11 @@ ul {
   border-color: var(--accent-glow);
 }
 
+.graph-assistant-button {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent-bright);
+}
+
 /* ---------- 个性化学习 ---------- */
 .prefs-section {
   margin-bottom: 26px;
@@ -2451,6 +2458,83 @@ ul {
   color: var(--text);
   border-color: var(--line);
   background: var(--glass-bg-soft);
+}
+
+/* ---------- 韦恩图 ---------- */
+.venn-shell {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px 18px 92px;
+}
+
+.venn-graph {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.venn-set__disc {
+  fill: color-mix(in srgb, var(--accent) 10%, transparent);
+  stroke: color-mix(in srgb, var(--accent) 42%, transparent);
+  stroke-width: 1.2;
+}
+
+.venn-set__label {
+  fill: var(--text-soft);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.venn-set__more {
+  fill: var(--text-faint);
+  font-size: 9.5px;
+}
+
+.venn-relation {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent) 55%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.55;
+}
+
+.venn-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.venn-node__label {
+  fill: var(--text-soft);
+  font-size: 9.5px;
+  pointer-events: none;
+}
+
+.venn-node__due {
+  fill: none;
+  stroke: var(--node-ring);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 3;
+}
+
+.venn-node__root-label {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.venn-node.is-selected .venn-node__label,
+.venn-node.is-selected .venn-node__root-label {
+  fill: var(--text);
+}
+
+.venn-node:focus-visible .venn-node__core {
+  stroke: var(--accent-bright);
+  stroke-width: 2;
 }
 
 .quiz-mode-grid {
@@ -3172,6 +3256,7 @@ ul {
     justify-content: space-between;
     align-items: center;
     gap: 12px;
+    margin-right: 0;
   }
 
   .graph-stats {
@@ -3319,6 +3404,7 @@ ul {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
+    margin-right: 0;
   }
 
   .graph-stats {
@@ -3654,6 +3740,15 @@ ul {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text);
+}
+
+.assistant-chat__doc {
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .assistant-chat__close {

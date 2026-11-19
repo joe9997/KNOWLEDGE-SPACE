@@ -2,6 +2,9 @@ export type ThemeMode = 'dark' | 'light';
 
 export type AppView = 'home' | 'new' | 'graph' | 'review' | 'settings' | 'assistant';
 
+/** 图谱呈现方式；venn 为不同的集合重叠视图 */
+export type GraphView = 'galaxy' | 'radial' | 'tree' | 'timeline' | 'venn';
+
 export type Mastery = 0 | 1 | 2;
 
 /** 复习状态：到期 / 模糊 / 已掌握 */

@@ -51,6 +51,65 @@ const MAX_TEXT_CHARS = 10000;
 const MAX_TEXT_SIZE = 2 * 1024 * 1024;
 const MAX_DOC_SIZE = 20 * 1024 * 1024;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+/** 记住最近 15 条会话（用户 + 助手），下次打开继续接着聊 */
+const MEMORY_LIMIT = 15;
+const MEMORY_PREFIX = 'ks.assistant.memory.v1';
+
+function memoryKey(userId: string): string {
+  return `${MEMORY_PREFIX}:${userId}`;
+}
+
+/** 只保留可安全落盘的结构，图片预览等大字段不写入本地存储 */
+function compactEntries(entries: ChatEntry[]): ChatEntry[] {
+  return entries.slice(-MEMORY_LIMIT).map((entry) => ({
+    role: entry.role,
+    content: entry.content,
+    ...(entry.files && entry.files.length > 0
+      ? {
+          files: entry.files.map((file) => ({ name: file.name, kind: file.kind })),
+        }
+      : {}),
+  }));
+}
+
+function sanitizeEntries(value: unknown): ChatEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const entries: ChatEntry[] = [];
+  for (const item of value) {
+    const role = (item as ChatEntry | undefined)?.role;
+    const content = (item as ChatEntry | undefined)?.content;
+    if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') {
+      continue;
+    }
+    entries.push({ role, content });
+  }
+  return entries.slice(-MEMORY_LIMIT);
+}
+
+function readMemory(key: string | null): ChatEntry[] {
+  if (!key) {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? sanitizeEntries(JSON.parse(raw)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeMemory(key: string | null, entries: ChatEntry[]): void {
+  if (!key) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, JSON.stringify(compactEntries(entries)));
+  } catch {
+    // 本地存储不可用或已满时放弃记忆，不影响当前对话
+  }
+}
 
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -117,7 +176,8 @@ export function AssistantChat({
   onClose,
   variant = 'popover',
 }: AssistantChatProps) {
-  const { apiConfig } = useApp();
+  const { apiConfig, currentUser } = useApp();
+  const memoryStorageKey = currentUser ? memoryKey(currentUser.id) : null;
   const panelRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const attachRef = useRef<HTMLDivElement>(null);
@@ -130,12 +190,20 @@ export function AssistantChat({
     originY: number;
   } | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
-  const [messages, setMessages] = useState<ChatEntry[]>([]);
+  const [messages, setMessages] = useState<ChatEntry[]>(() => readMemory(memoryStorageKey));
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 流式输出期间不落盘，等这一轮结束再写入最近 15 条
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+    writeMemory(memoryStorageKey, messages);
+  }, [messages, loading, memoryStorageKey]);
 
   useEffect(() => {
     if (!open) {
@@ -284,7 +352,10 @@ export function AssistantChat({
     }
 
     const history: OutgoingChatMessage[] = [
-      ...messages.map((message) => ({ role: message.role, content: message.content })),
+      ...messages.slice(-(MEMORY_LIMIT - 1)).map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
       { role: 'user', content: outgoing },
     ];
 
@@ -347,6 +418,7 @@ export function AssistantChat({
       >
         <div className="assistant-chat__title">
           <strong>AI 助手</strong>
+          {doc && <span className="assistant-chat__doc">{doc.title}</span>}
         </div>
         {variant === 'popover' && (
           <button

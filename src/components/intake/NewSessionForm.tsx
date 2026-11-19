@@ -14,7 +14,7 @@ import { extractWithAI, type ExtractionProgress } from '../../lib/llm';
 import { extractWithServer } from '../../lib/serverAi';
 import { useApp } from '../../state/AppStore';
 
-const MAX_CHARS = 20_000;
+const MAX_CHARS = 1_000_000;
 
 interface NewSessionFormProps {
   onCreated: (docId: string) => void;
@@ -196,7 +196,7 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
         </span>
         <span className="dropzone__text">
           {working === 'file' ? '正在读取文件…' : '拖入或选择文件'}
-          <span>支持 PDF / Word / 文本 · 最多 20,000 字</span>
+          <span>支持 PDF / Word / 文本 · 最多 {MAX_CHARS.toLocaleString()} 字</span>
         </span>
         <input
           ref={fileInputRef}
@@ -224,7 +224,7 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
             const next = event.target.value;
             if (next.length > MAX_CHARS) {
               setText(next.slice(0, MAX_CHARS));
-              setError('已达到 20,000 字上限，超出部分未导入。');
+              setError(`已达到 ${MAX_CHARS.toLocaleString()} 字上限，超出部分未导入。`);
             } else {
               setText(next);
             }
@@ -240,7 +240,7 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
           <strong className={text.length >= MAX_CHARS ? 'is-over' : ''}>
             {text.length.toLocaleString()}
           </strong>{' '}
-          / 20,000 字
+          / {MAX_CHARS.toLocaleString()} 字
         </span>
       </div>
 
