@@ -62,6 +62,27 @@ npm run build:single
 
 最新版本也可以从 GitHub Actions 的 `standalone-html` 产物里直接下载，不必 clone 仓库。
 
+## 部署（Node.js 20 单进程）
+
+仓库根目录已附带部署适配文件，构建一次即可让前端与 Express API 在同一进程对外服务：
+
+| 文件 | 作用 |
+| --- | --- |
+| [`build.sh`](build.sh) | `npm ci` + `npm run build`，再用 esbuild 把 `server/index.ts` 打成 `dist/server.mjs`，并把 `run.sh` 收进产物 |
+| [`run.sh`](run.sh) | 启动产物：固定端口 3001、监听 `0.0.0.0`、前端目录为产物根、数据目录指向可写临时盘 |
+| [`execution-config.json`](execution-config.json) | 构建 / 运行时配置（Node.js 20、入口脚本、端口） |
+
+产物 `dist/` 内同时包含前端静态文件、`server.mjs` 与 `run.sh`；启动后 Express 直接托管前端并挂载 `/api`。
+
+生产环境变量只在运行时注入，不要写进仓库或产物：
+
+| 变量 | 说明 |
+| --- | --- |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | 启用 Supabase 持久化；未配置时退回本地 JSON 文件存储 |
+| `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | 服务端模型调用 |
+| `DATA_DIR` | 未接 Supabase 时的数据目录，容器部署建议指向可写临时目录（`run.sh` 默认 `/tmp/knowledge-space-data`） |
+| `HOST` / `PORT` / `STATIC_DIR` | 监听地址、端口、前端产物目录，默认值适配本地开发 |
+
 ## 团队协作（6 人）
 
 仓库是 **Private**，只有项目组的 6 个 GitHub 账号能访问。
@@ -201,7 +222,8 @@ grade 1 → mastery=1, goodStreak=0, +2 天
 grade 2 → mastery=2, goodStreak++, +round(3 * 1.6 ** goodStreak) 天
 ```
 
-- 到期节点显示为粉红「待复习」，未到期的模糊节点为暖黄，已掌握为薄荷绿。
+- 节点颜色只表示**掌握度**：没记住 = 玫红、有点模糊 = 暖黄、已掌握 = 薄荷绿；到期节点保留原色，另外加一圈红色脉冲虚线描边，不会因为到期就把已掌握的节点染红。
+- 「到期」判断与首页「今日待复习」共用同一个“现在”：切换演示时间（今天 / 三天后 / 七天后）时，描边和数量保持一致；页面跨天时每 2 秒自动重算。
 - 示例材料初始恰好有 3 个到期节点；时间旅行切换后会变化。
 - 时间旅行只改变前端查询与复习计算的「现在」，用于演示，不修改系统时间。
 
@@ -309,5 +331,4 @@ src/
 - 服务端异步抽取任务、重试队列与整篇进度接口；
 - pgvector 句子切分与相似度兜底（≥ 0.75）；
 - 分布式限流与配额、多租户 Key 管理；
-- PDF / 图片 OCR、多人协作、分享广场；
-- 公网部署（服务默认只监听 `127.0.0.1`；Vercel 上还需补 `maxDuration` 并把本地文件存储换成 Supabase）。
+- PDF / 图片 OCR、多人协作、分享广场。

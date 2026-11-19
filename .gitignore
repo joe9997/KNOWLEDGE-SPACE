@@ -41,6 +41,7 @@ Thumbs.db
 # 临时文件
 *.tmp
 *.log
+.tmp-deploy/
 
 # Vercel 项目关联（本地配置，不进仓库）
 .vercel

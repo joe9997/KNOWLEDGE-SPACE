@@ -9,9 +9,16 @@ interface KnowledgeGraphProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onExport: () => void;
+  offsetDays: number;
 }
 
-export function KnowledgeGraph({ doc, selectedId, onSelect, onExport }: KnowledgeGraphProps) {
+export function KnowledgeGraph({
+  doc,
+  selectedId,
+  onSelect,
+  onExport,
+  offsetDays,
+}: KnowledgeGraphProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const galaxyRef = useRef<GalaxyGraphHandle>(null);
   const [zoomPercent, setZoomPercent] = useState(100);
@@ -49,6 +56,7 @@ export function KnowledgeGraph({ doc, selectedId, onSelect, onExport }: Knowledg
         selectedId={selectedId}
         onSelect={onSelect}
         onZoomChange={setZoomPercent}
+        offsetDays={offsetDays}
       />
 
       <p className="graph-hint">拖动旋转星系 · 滚轮缩放 · 点击星点查看原文</p>
@@ -60,18 +68,22 @@ export function KnowledgeGraph({ doc, selectedId, onSelect, onExport }: Knowledg
       )}
 
       <div className="graph-toolbar">
-        <div className="graph-legend" aria-label="节点状态图例">
+        <div
+          className="graph-legend"
+          aria-label="节点图例：颜色表示掌握度，红色虚线描边表示已到期"
+        >
           <span className="graph-legend__item">
-            <i className="graph-legend__dot" data-status="due" />待复习
+            <i className="graph-legend__dot" data-mastery="0" />没记住
           </span>
           <span className="graph-legend__item">
-            <i className="graph-legend__dot" data-status="fuzzy" />模糊
+            <i className="graph-legend__dot" data-mastery="1" />有点模糊
           </span>
           <span className="graph-legend__item">
-            <i className="graph-legend__dot" data-status="mastered" />已掌握
+            <i className="graph-legend__dot" data-mastery="2" />已掌握
           </span>
           <span className="graph-legend__item">
-            <i className="graph-legend__dot" data-status="none" />无出处
+            <i className="graph-legend__dot graph-legend__dot--ring" aria-hidden="true" />
+            已到期
           </span>
         </div>
 

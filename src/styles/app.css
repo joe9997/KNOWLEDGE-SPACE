@@ -1828,7 +1828,7 @@ ul {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(0, 4, 12, 0.32) 100%);
+  background: radial-gradient(120% 90% at 50% 45%, transparent 50%, rgba(0, 3, 10, 0.55) 100%);
 }
 
 [data-theme='light'] .galaxy-canvas-shell::after {
@@ -1891,16 +1891,19 @@ ul {
   background: var(--node-fuzzy);
 }
 
-.graph-legend__dot[data-status='due'] {
+.graph-legend__dot[data-mastery='0'] {
   background: var(--node-due);
 }
 
-.graph-legend__dot[data-status='mastered'] {
+.graph-legend__dot[data-mastery='2'] {
   background: var(--node-mastered);
 }
 
-.graph-legend__dot[data-status='none'] {
-  background: var(--node-muted);
+.graph-legend__dot--ring {
+  width: 7px;
+  height: 7px;
+  background: transparent;
+  border: 1.3px dashed var(--node-ring);
 }
 
 .graph-tools {
