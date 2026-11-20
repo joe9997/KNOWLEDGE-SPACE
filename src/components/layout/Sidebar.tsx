@@ -14,6 +14,7 @@ interface SidebarProps {
   onCloseMobile: () => void;
   onNavigate: (view: AppView) => void;
   onNewSession: () => void;
+  onOpenAssistant: () => void;
   onOpenReview: () => void;
   onOpenDoc: (id: string) => void;
 }
@@ -35,6 +36,7 @@ export function Sidebar({
   onCloseMobile,
   onNavigate,
   onNewSession,
+  onOpenAssistant,
   onOpenReview,
   onOpenDoc,
 }: SidebarProps) {
@@ -251,7 +253,7 @@ export function Sidebar({
             type="button"
             className={`assistant-entry ${view === 'assistant' ? 'is-active' : ''}`.trim()}
             onClick={() => {
-              onNavigate('assistant');
+              onOpenAssistant();
               if (isMobile) {
                 onCloseMobile();
               }

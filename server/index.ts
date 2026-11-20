@@ -24,6 +24,7 @@ import {
 import type { UserRecord } from './auth.ts';
 import { rateLimit } from './ratelimit.ts';
 import { readSnapshot, sanitizeDocs, validateDocsPayload, writeSnapshot } from './store.ts';
+import { isSupabaseConfigured } from './supabase.ts';
 
 const MAX_CHUNK_CHARS = 4000;
 const MAX_CHAT_CONTEXT = 8000;
@@ -57,6 +58,11 @@ function sanitizeChatContent(raw: unknown): ChatContent | null {
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const config = readServerConfig();
+if (!isSupabaseConfigured()) {
+  console.warn(
+    '[storage] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 未配置：当前使用本地 JSON 存储，重启或重新部署会丢失账号。',
+  );
+}
 const app = express();
 
 class HttpError extends Error {
@@ -147,6 +153,8 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'knowledge-space-api',
+    storage: isSupabaseConfigured() ? 'supabase' : 'file',
+    persistent: isSupabaseConfigured(),
     ai: {
       available: Boolean(config.ai),
       model: config.ai?.model ?? null,

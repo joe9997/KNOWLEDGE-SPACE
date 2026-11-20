@@ -18,8 +18,16 @@ import { useMediaQuery } from './lib/useMediaQuery';
 import { useApp } from './state/AppStore';
 
 export default function App() {
-  const { activeDoc, activeDocId, resetDemo, setActiveDocId, currentUser, authLoading, learningPrefs } =
-    useApp();
+  const {
+    docs,
+    activeDoc,
+    activeDocId,
+    resetDemo,
+    setActiveDocId,
+    currentUser,
+    authLoading,
+    learningPrefs,
+  } = useApp();
   const isMobile = useMediaQuery('(max-width: 900px)');
   const [view, setView] = useState<AppView>('home');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -28,6 +36,10 @@ export default function App() {
     mode: QuizMode | null;
   } | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  // 每次点击「AI 助手」都换一个 token，助手页据此开启新会话
+  const [assistantSession, setAssistantSession] = useState(0);
+  // hub：侧栏入口，接入全部会话；doc：图谱页入口，只针对当前材料
+  const [assistantMode, setAssistantMode] = useState<'hub' | 'doc'>('hub');
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('user');
 
   const navigate = useCallback((next: AppView) => {
@@ -127,6 +139,11 @@ export default function App() {
           onCloseMobile={() => setSidebarOpen(false)}
           onNavigate={navigate}
           onNewSession={openNewSession}
+          onOpenAssistant={() => {
+            setAssistantMode('hub');
+            setAssistantSession((token) => token + 1);
+            navigate('assistant');
+          }}
           onOpenReview={openReview}
           onOpenDoc={openDoc}
         />
@@ -168,6 +185,11 @@ export default function App() {
                   })
                 }
                 onNavigate={navigate}
+                onOpenAssistant={() => {
+                  setAssistantMode('doc');
+                  setAssistantSession((token) => token + 1);
+                  navigate('assistant');
+                }}
               />
             )}
 
@@ -193,6 +215,14 @@ export default function App() {
                 variant="page"
                 open
                 doc={activeDoc}
+                docs={docs}
+                mode={assistantMode}
+                sessionToken={assistantSession}
+                onStartQuiz={() => {
+                  if (activeDoc) {
+                    setQuizSession({ queue: activeDoc.nodes.map((node) => node.id), mode: null });
+                  }
+                }}
                 onClose={() => navigate('graph')}
               />
             )}
@@ -211,6 +241,7 @@ export default function App() {
       <AssistantChat
         open={assistantOpen}
         doc={activeDoc}
+        docs={docs}
         onClose={() => setAssistantOpen(false)}
       />
 

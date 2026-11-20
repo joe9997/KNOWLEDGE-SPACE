@@ -1,4 +1,4 @@
-/** 浏览器端文件文本提取：PDF / Word(docx) / 纯文本类 */
+/** 浏览器端文件文本提取：PDF / Word(docx) / PowerPoint(pptx) / 纯文本类 */
 
 const TEXT_EXTENSIONS = [
   'txt',
@@ -21,20 +21,43 @@ const TEXT_EXTENSIONS = [
   'tex',
 ];
 
+/** 从文件名得到会话标题：去掉路径与扩展名，保留名称中的点号 */
+export function fileNameToTitle(name: string): string {
+  const base = name.split(/[\\/]/).pop() ?? name;
+  const withoutExtension = base.replace(/\.[^.]+$/, '').trim();
+  return (withoutExtension || base.trim() || '未命名材料').slice(0, 60);
+}
+
 /** 给 <input type="file"> 用的 accept，含扩展名与 MIME，避免不同系统下筛选失效 */
 export const FILE_ACCEPT = [
   '.pdf',
   '.docx',
   '.doc',
+  '.pptx',
+  '.pptm',
+  '.ppsx',
+  '.ppt',
   ...TEXT_EXTENSIONS.map((ext) => `.${ext}`),
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/msword',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+  'application/vnd.ms-powerpoint.presentation.macroEnabled.12',
+  'application/vnd.ms-powerpoint',
   'text/*',
   'application/json',
 ].join(',');
 
-export type FileKind = 'image' | 'pdf' | 'docx' | 'text' | 'legacy-word' | 'unknown';
+export type FileKind =
+  | 'image'
+  | 'pdf'
+  | 'docx'
+  | 'pptx'
+  | 'text'
+  | 'legacy-word'
+  | 'legacy-ppt'
+  | 'unknown';
 
 export interface ExtractedFile {
   text: string;
@@ -59,6 +82,21 @@ export function detectFileKind(file: File): FileKind {
   }
   if (name.endsWith('.doc')) {
     return 'legacy-word';
+  }
+  if (
+    name.endsWith('.pptx') ||
+    name.endsWith('.pptm') ||
+    name.endsWith('.ppsx') ||
+    file.type ===
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+    file.type ===
+      'application/vnd.openxmlformats-officedocument.presentationml.slideshow' ||
+    file.type === 'application/vnd.ms-powerpoint.presentation.macroEnabled.12'
+  ) {
+    return 'pptx';
+  }
+  if (name.endsWith('.ppt') || name.endsWith('.pps')) {
+    return 'legacy-ppt';
   }
   if (
     file.type.startsWith('text/') ||
@@ -163,6 +201,78 @@ async function extractDocxText(file: File, maxChars: number): Promise<ExtractedF
   };
 }
 
+/** 解码 PPTX XML 中的常见实体与数字字符引用 */
+function decodeXmlEntities(value: string): string {
+  return value.replace(/&(#x?[0-9a-f]+|amp|lt|gt|quot|apos);/gi, (match, code: string) => {
+    switch (code.toLowerCase()) {
+      case 'amp':
+        return '&';
+      case 'lt':
+        return '<';
+      case 'gt':
+        return '>';
+      case 'quot':
+        return '"';
+      case 'apos':
+        return "'";
+      default:
+        break;
+    }
+    if (code.startsWith('#')) {
+      const hex = code[1]?.toLowerCase() === 'x';
+      const point = Number.parseInt(code.slice(hex ? 2 : 1), hex ? 16 : 10);
+      if (Number.isFinite(point) && point >= 0 && point <= 0x10ffff) {
+        try {
+          return String.fromCodePoint(point);
+        } catch {
+          return match;
+        }
+      }
+    }
+    return match;
+  });
+}
+
+/** 从单页 slide XML 中按段落提取文字，保留换行 */
+function slideXmlToText(xml: string): string {
+  const token = /<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>|<a:br\s*\/?>|<\/a:p>/g;
+  let text = '';
+  for (const match of xml.matchAll(token)) {
+    if (match[1] !== undefined) {
+      text += decodeXmlEntities(match[1]);
+    } else {
+      text += '\n';
+    }
+  }
+  return text;
+}
+
+async function extractPptxText(file: File, maxChars: number): Promise<ExtractedFile> {
+  const { unzipSync, strFromU8 } = await import('fflate');
+  let entries: Record<string, Uint8Array>;
+  try {
+    entries = unzipSync(new Uint8Array(await file.arrayBuffer()), {
+      filter: (entry) => /^ppt\/slides\/slide\d+\.xml$/i.test(entry.name),
+    });
+  } catch {
+    throw new Error('无法读取这个 PPT 文件，可能已加密或损坏；请另存为 .pptx 后重试');
+  }
+  const slideNumber = (name: string) => Number(name.match(/slide(\d+)\.xml$/i)?.[1] ?? 0);
+  const slides = Object.keys(entries)
+    .sort((a, b) => slideNumber(a) - slideNumber(b))
+    .map((name) => tidy(slideXmlToText(strFromU8(entries[name]))))
+    .filter(Boolean);
+  if (slides.length === 0) {
+    throw new Error('PPT 中没有可读取的文字（可能全部是图片或扫描页），请先转为可复制文字的幻灯片。');
+  }
+  const full = tidy(slides.join('\n\n'));
+  return {
+    text: full.slice(0, maxChars),
+    chars: full.length,
+    truncated: full.length > maxChars,
+  };
+}
+
 /**
  * 读取文件中的文字。不支持的类型会抛出可直接展示的错误。
  * @param maxChars 最多返回多少字，超出部分截断
@@ -174,6 +284,8 @@ export async function extractFileText(file: File, maxChars: number): Promise<Ext
       return extractPdfText(file, maxChars);
     case 'docx':
       return extractDocxText(file, maxChars);
+    case 'pptx':
+      return extractPptxText(file, maxChars);
     case 'text': {
       const full = await decodeText(file);
       return {
@@ -184,6 +296,8 @@ export async function extractFileText(file: File, maxChars: number): Promise<Ext
     }
     case 'legacy-word':
       throw new Error('暂不支持旧版 .doc，请在 Word 中另存为 .docx 或 PDF 后再上传');
+    case 'legacy-ppt':
+      throw new Error('暂不支持旧版 .ppt，请在 PowerPoint 中另存为 .pptx 后再上传');
     case 'image':
       throw new Error('这是图片，请用「上传图片」');
     default: {

@@ -174,14 +174,46 @@ ul {
 
 .orbit-mark__core {
   fill: var(--accent-bright);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: orbit-mark-pulse 3.6s ease-in-out infinite;
 }
 
-.orbit-mark__star {
+.orbit-mark__satellite {
   fill: var(--accent-bright);
 }
 
 .orbit-mark__spark {
   fill: var(--text-faint);
+}
+
+.orbit-mark__spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: orbit-mark-spin 16s linear infinite;
+}
+
+@keyframes orbit-mark-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes orbit-mark-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.07);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-mark__spin,
+  .orbit-mark__core {
+    animation: none;
+  }
 }
 
 /* ---------- 侧栏 ---------- */
@@ -522,8 +554,133 @@ ul {
 }
 
 .assistant-entry.is-active {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   background: var(--sidebar-active);
+}
+
+/* AI 助手入口：紫粉渐变描边 + 缓慢流动，和中心主节点同一套配色 */
+.assistant-entry {
+  position: relative;
+  isolation: isolate;
+  border-color: transparent;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--node-root-edge) 16%, transparent);
+  transition:
+    box-shadow var(--transition-base),
+    background var(--transition-base);
+}
+
+.assistant-entry:hover {
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--node-root-edge) 28%, transparent);
+}
+
+.assistant-entry.is-active {
+  border-color: transparent;
+}
+
+.assistant-entry::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    115deg,
+    var(--node-root-mid) 0%,
+    var(--node-root-edge) 24%,
+    var(--node-root) 48%,
+    var(--node-root-edge) 72%,
+    var(--node-root-mid) 100%
+  );
+  background-size: 320% 320%;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: assistant-border-flow 5.5s linear infinite;
+  pointer-events: none;
+}
+
+.assistant-entry::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    70% 140% at 18% 50%,
+    rgba(232, 179, 220, 0.34),
+    rgba(185, 179, 242, 0.18) 45%,
+    transparent 72%
+  );
+  opacity: 0;
+  transition: opacity var(--transition-base);
+  pointer-events: none;
+}
+
+.assistant-entry:hover::after,
+.assistant-entry.is-active::after {
+  opacity: 1;
+}
+
+.assistant-entry > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* 按钮内部也铺一层缓慢流动的紫粉渐变，和渐变描边连成一体 */
+.assistant-entry {
+  background-image: linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--node-root-mid) 24%, transparent) 0%,
+    color-mix(in srgb, var(--node-root-edge) 30%, transparent) 46%,
+    color-mix(in srgb, var(--node-root-mid) 24%, transparent) 100%
+  );
+  background-size: 220% 220%;
+  animation: assistant-gradient-flow 7s ease-in-out infinite alternate;
+}
+
+.assistant-entry:hover {
+  background-image: linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--node-root-mid) 32%, transparent) 0%,
+    color-mix(in srgb, var(--node-root-edge) 40%, transparent) 46%,
+    color-mix(in srgb, var(--node-root-mid) 32%, transparent) 100%
+  );
+}
+
+.assistant-entry.is-active {
+  background-image: linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--node-root-mid) 38%, transparent) 0%,
+    color-mix(in srgb, var(--node-root-edge) 46%, transparent) 50%,
+    color-mix(in srgb, var(--node-root-mid) 38%, transparent) 100%
+  );
+}
+
+@keyframes assistant-gradient-flow {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes assistant-border-flow {
+  to {
+    background-position: 320% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-entry::before,
+  .assistant-entry {
+    animation: none;
+  }
 }
 
 .assistant-entry__icon {
@@ -1682,6 +1839,25 @@ ul {
   overflow-wrap: anywhere;
 }
 
+.graph-head__subtitle {
+  margin: -1px 0 5px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+
+.graph-head__summary {
+  max-width: 760px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-faint);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .graph-head__right {
   display: flex;
   align-items: flex-end;
@@ -2448,9 +2624,60 @@ ul {
   border-color: var(--accent-glow);
 }
 
+/* 图谱页头部的 AI 助手按钮：紫粉渐变底 + 缓慢流动 + 流光扫过 */
 .graph-assistant-button {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  color: var(--accent-bright);
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--node-root-edge) 45%, transparent);
+  color: var(--text);
+  background-image: linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--node-root-mid) 30%, transparent) 0%,
+    color-mix(in srgb, var(--node-root-edge) 34%, transparent) 50%,
+    color-mix(in srgb, var(--node-root-mid) 30%, transparent) 100%
+  );
+  background-size: 220% 220%;
+  animation: assistant-gradient-flow 7s ease-in-out infinite alternate;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--node-root-edge) 16%, transparent);
+}
+
+.graph-assistant-button:hover {
+  border-color: color-mix(in srgb, var(--node-root-edge) 68%, transparent);
+  color: var(--text);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--node-root-edge) 26%, transparent);
+}
+
+.graph-assistant-button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    110deg,
+    transparent 34%,
+    rgba(255, 255, 255, 0.34) 50%,
+    transparent 66%
+  );
+  background-size: 240% 100%;
+  animation: assistant-sheen 5.2s ease-in-out infinite;
+}
+
+@keyframes assistant-sheen {
+  0% {
+    background-position: 190% 0;
+  }
+  55%,
+  100% {
+    background-position: -90% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graph-assistant-button,
+  .graph-assistant-button::after {
+    animation: none;
+  }
 }
 
 /* ---------- 个性化学习 ---------- */
@@ -2683,12 +2910,25 @@ ul {
   display: grid;
   place-items: center;
   padding: 18px 18px 92px;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+
+.venn-shell.is-panning {
+  cursor: grabbing;
+}
+
+.venn-shell.is-panning .venn-graph {
+  will-change: transform;
 }
 
 .venn-graph {
   width: 100%;
   height: 100%;
   overflow: visible;
+  transform-origin: 0 0;
 }
 
 .venn-set__disc {
@@ -2737,7 +2977,8 @@ ul {
 
 .venn-node__root-label {
   fill: var(--text);
-  font-size: 11px;
+  font-family: var(--font-serif);
+  font-size: 14px;
   font-weight: 600;
   pointer-events: none;
 }
@@ -2750,6 +2991,143 @@ ul {
 .venn-node:focus-visible .venn-node__core {
   stroke: var(--accent-bright);
   stroke-width: 2;
+}
+
+/* 中心源点：文件标题对应的特殊节点 */
+.venn-node--root {
+  cursor: pointer;
+}
+
+.venn-origin__glow,
+.venn-origin__rim,
+.venn-origin__rings,
+.venn-origin__satellite,
+.venn-origin__core,
+.venn-origin__caption {
+  pointer-events: none;
+}
+
+/* 中心主节点：实心圆点 + 轨道，颜色独立于知识点的掌握度配色 */
+.venn-origin__rim {
+  fill: none;
+  stroke: var(--node-root-ring);
+  stroke-width: 1;
+}
+
+.venn-origin__satellite {
+  fill: var(--node-root);
+}
+
+/* 主点：白心 → 薰衣草紫 → 粉的径向渐变 */
+.venn-origin__core {
+  fill: url(#venn-origin-core);
+}
+
+.venn-origin-core__hot {
+  stop-color: var(--node-root-hot);
+}
+
+.venn-origin-core__mid {
+  stop-color: var(--node-root-mid);
+}
+
+.venn-origin-core__edge {
+  stop-color: var(--node-root-edge);
+}
+
+/* 粉色发光：径向渐变向外淡出，再叠一层很轻的呼吸 */
+.venn-origin__glow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: venn-origin-glow 4.6s ease-in-out infinite;
+}
+
+.venn-origin-glow__inner {
+  stop-color: var(--node-root-edge);
+  stop-opacity: 0.9;
+}
+
+.venn-origin-glow__mid {
+  stop-color: var(--node-root-edge);
+  stop-opacity: 0.42;
+}
+
+.venn-origin-glow__outer {
+  stop-color: var(--node-root-edge);
+  stop-opacity: 0;
+}
+
+@keyframes venn-origin-glow {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+/* 双类名保证特异性高于基类的 animation 简写 */
+.venn-origin__rings.venn-origin__rings--reverse {
+  animation-duration: 42s;
+  animation-direction: reverse;
+}
+
+.venn-origin__orbit--soft {
+  stroke-dasharray: 1.5 9;
+  opacity: 0.42;
+}
+
+.venn-origin__hit {
+  fill: transparent;
+}
+
+.venn-origin__rings {
+  animation: venn-origin-spin 28s linear infinite;
+}
+
+.venn-origin__orbit {
+  fill: none;
+  stroke: color-mix(in srgb, var(--node-root) 56%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 7;
+  opacity: 0.8;
+}
+
+.venn-node--root.is-selected .venn-origin__orbit {
+  stroke: var(--node-root);
+  opacity: 0.95;
+}
+
+.venn-origin__caption {
+  fill: var(--text-faint);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+}
+
+.venn-node--root:focus-visible {
+  outline: none;
+}
+
+.venn-node--root:focus-visible .venn-origin__hit {
+  stroke: var(--accent-bright);
+  stroke-width: 2;
+}
+
+@keyframes venn-origin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .venn-origin__rings,
+  .venn-origin__glow {
+    animation: none;
+  }
 }
 
 .quiz-mode-grid {
@@ -3753,7 +4131,7 @@ ul {
   color: #ffffff;
   cursor: pointer;
   box-shadow:
-    0 14px 34px var(--accent-glow),
+    0 14px 34px color-mix(in srgb, var(--node-root-edge) 32%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.28);
   transition:
     transform var(--transition-fast),
@@ -3763,7 +4141,7 @@ ul {
 .assistant-fab:hover {
   transform: translateY(-3px) scale(1.04);
   box-shadow:
-    0 22px 46px var(--accent-glow),
+    0 22px 46px color-mix(in srgb, var(--node-root-edge) 44%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.36);
 }
 
@@ -3884,7 +4262,12 @@ ul {
 .assistant-entry__icon {
   isolation: isolate;
   overflow: hidden;
-  background: linear-gradient(135deg, #4c6fff 0%, #9b72cb 52%, #d96570 100%);
+  background: linear-gradient(
+    135deg,
+    var(--node-root-mid) 0%,
+    var(--node-root-edge) 52%,
+    var(--node-root) 100%
+  );
 }
 
 .assistant-entry__icon {
@@ -3906,10 +4289,26 @@ ul {
 .assistant-fab::before,
 .assistant-entry__icon::before {
   background:
-    radial-gradient(closest-side at 32% 30%, #4285f4 0%, rgba(66, 133, 244, 0) 72%),
-    radial-gradient(closest-side at 72% 30%, #9b72cb 0%, rgba(155, 114, 203, 0) 72%),
-    radial-gradient(closest-side at 32% 74%, #d96570 0%, rgba(217, 101, 112, 0) 72%),
-    radial-gradient(closest-side at 74% 72%, #5ce1e6 0%, rgba(92, 225, 230, 0) 70%);
+    radial-gradient(
+      closest-side at 32% 30%,
+      var(--node-root-mid) 0%,
+      color-mix(in srgb, var(--node-root-mid) 0%, transparent) 72%
+    ),
+    radial-gradient(
+      closest-side at 72% 30%,
+      var(--node-root-edge) 0%,
+      color-mix(in srgb, var(--node-root-edge) 0%, transparent) 72%
+    ),
+    radial-gradient(
+      closest-side at 32% 74%,
+      var(--node-root) 0%,
+      color-mix(in srgb, var(--node-root) 0%, transparent) 72%
+    ),
+    radial-gradient(
+      closest-side at 74% 72%,
+      var(--node-root-mid) 0%,
+      color-mix(in srgb, var(--node-root-mid) 0%, transparent) 70%
+    );
   filter: blur(7px);
   animation: assistant-swirl 9s linear infinite;
 }
@@ -3919,18 +4318,18 @@ ul {
   background:
     radial-gradient(
       closest-side at 62% 38%,
-      rgba(242, 161, 194, 0.95) 0%,
-      rgba(242, 161, 194, 0) 68%
+      color-mix(in srgb, var(--node-root-edge) 95%, transparent) 0%,
+      color-mix(in srgb, var(--node-root-edge) 0%, transparent) 68%
     ),
     radial-gradient(
       closest-side at 38% 62%,
-      rgba(92, 225, 230, 0.85) 0%,
-      rgba(92, 225, 230, 0) 68%
+      color-mix(in srgb, var(--node-root-mid) 85%, transparent) 0%,
+      color-mix(in srgb, var(--node-root-mid) 0%, transparent) 68%
     ),
     radial-gradient(
       closest-side at 66% 72%,
-      rgba(155, 114, 203, 0.9) 0%,
-      rgba(155, 114, 203, 0) 68%
+      color-mix(in srgb, var(--node-root) 90%, transparent) 0%,
+      color-mix(in srgb, var(--node-root) 0%, transparent) 68%
     );
   filter: blur(9px);
   mix-blend-mode: screen;
@@ -4035,6 +4434,125 @@ ul {
 .assistant-chat__hints button:hover {
   color: var(--text);
   background: var(--accent-soft);
+}
+
+/* 助手输入框上方的常驻快捷指令 */
+.assistant-chat__quickbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 8px;
+}
+
+.assistant-chat__quickbar button {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--glass-bg);
+  color: var(--text-soft);
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.assistant-chat__quickbar button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--glass-border-strong);
+  background: var(--glass-bg-soft);
+}
+
+.assistant-chat__quickbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.assistant-chat__quickbar button.is-accent {
+  border-color: color-mix(in srgb, var(--node-root-edge) 45%, transparent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--node-root-edge) 16%, transparent);
+}
+
+/* 助手长文本：按内容类型区分字号与字体 */
+.assistant-chat__bubble-text.is-rich {
+  display: block;
+}
+
+.assistant-rich {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.assistant-rich__title {
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.assistant-rich__meta {
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--text-faint);
+}
+
+.assistant-rich__section {
+  margin-top: 7px;
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text);
+  letter-spacing: 0.01em;
+}
+
+.assistant-rich__item {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-soft);
+}
+
+/* 知识点下面的原文细节 */
+.assistant-rich__detail {
+  margin: 1px 0 3px 10px;
+  padding-left: 9px;
+  border-left: 2px solid color-mix(in srgb, var(--node-root-edge) 45%, transparent);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-soft);
+}
+
+.assistant-rich__answer {
+  padding-left: 12px;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+.assistant-rich__body {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-soft);
+}
+
+.assistant-rich__gap {
+  height: 4px;
+}
+
+.assistant-rich strong {
+  font-weight: 650;
+  color: var(--text);
+}
+
+.assistant-rich__detail strong {
+  font-weight: 650;
+  color: var(--text);
 }
 
 .assistant-chat__bubble {

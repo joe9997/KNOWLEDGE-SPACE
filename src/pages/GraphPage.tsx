@@ -15,6 +15,8 @@ interface GraphPageProps {
   onStartQuiz: (nodeIds: string[]) => void;
   onOpenQuizBank: (nodeIds: string[]) => void;
   onNavigate: (view: AppView) => void;
+  /** 只针对当前材料的 AI 助手（自动总结 + 出题） */
+  onOpenAssistant: () => void;
 }
 
 const ORIGIN_LABEL: Record<KnowledgeDoc['origin'], string> = {
@@ -23,7 +25,13 @@ const ORIGIN_LABEL: Record<KnowledgeDoc['origin'], string> = {
   ai: 'AI 整理',
 };
 
-export function GraphPage({ doc, onStartQuiz, onOpenQuizBank, onNavigate }: GraphPageProps) {
+export function GraphPage({
+  doc,
+  onStartQuiz,
+  onOpenQuizBank,
+  onNavigate,
+  onOpenAssistant,
+}: GraphPageProps) {
   const { now, offsetDays, activeDocId, learningPrefs, updateLearningPrefs } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
@@ -101,6 +109,8 @@ export function GraphPage({ doc, onStartQuiz, onOpenQuizBank, onNavigate }: Grap
             <span>{dueCount} 个节点今天到期</span>
           </div>
           <h2>{doc.title}</h2>
+          {doc.subtitle && <p className="graph-head__subtitle">{doc.subtitle}</p>}
+          {doc.summary && <p className="graph-head__summary">{doc.summary}</p>}
         </div>
 
         <div className="graph-head__right">
@@ -139,7 +149,7 @@ export function GraphPage({ doc, onStartQuiz, onOpenQuizBank, onNavigate }: Grap
           <button
             type="button"
             className="glass-button graph-quiz-button graph-assistant-button"
-            onClick={() => onNavigate('assistant')}
+            onClick={onOpenAssistant}
           >
             <Sparkles size={15} />
             AI 助手

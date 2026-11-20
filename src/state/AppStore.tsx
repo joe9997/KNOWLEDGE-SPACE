@@ -43,12 +43,15 @@ import type {
 } from '../lib/types';
 import { validateApiConfig } from '../lib/llm';
 import { normalizeAnnotationRange, overlapsAnnotation } from '../lib/annotations';
+import { buildDocMeta, deriveNodeTitle, isWeakNodeTitle } from '../lib/localExtract';
 import { fetchSnapshot, pushSnapshot } from '../lib/persistence';
 import { getServerAiStatus } from '../lib/serverAi';
 import type { ServerAiStatus } from '../lib/serverAi';
 
 interface CreateDocInput {
   title: string;
+  subtitle?: string;
+  summary?: string;
   text: string;
   origin: DocOrigin;
   nodes: KnowledgeNode[];
@@ -89,6 +92,42 @@ interface AppContextValue {
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
+
+/**
+ * 旧文档的展示修正（只用于展示，不回写存储）：
+ * - 没有副标题 / 摘要时用本地规则补一份
+ * - 把 "However" / "In this section" 这类空标题换成从原文推导的标题
+ */
+function withAutoMeta(doc: KnowledgeDoc): KnowledgeDoc {
+  const meta = doc.text && (!doc.subtitle || !doc.summary) ? buildDocMeta(doc.text) : null;
+  const used = new Set<string>();
+  let titlesChanged = false;
+  const nodes = doc.nodes.map((node) => {
+    let title = node.title;
+    if (node.quote && isWeakNodeTitle(title)) {
+      title = deriveNodeTitle(node.quote, title);
+      titlesChanged = true;
+    }
+    let unique = title;
+    let suffix = 2;
+    while (used.has(unique)) {
+      unique = `${title} ${suffix}`;
+      suffix += 1;
+    }
+    used.add(unique);
+    return unique === node.title ? node : { ...node, title: unique };
+  });
+
+  if (!meta && !titlesChanged) {
+    return doc;
+  }
+  return {
+    ...doc,
+    subtitle: doc.subtitle ?? meta?.subtitle,
+    summary: doc.summary ?? meta?.summary,
+    nodes,
+  };
+}
 
 /** 合并本地与服务端数据：同一会话取 updatedAt 较新的版本 */
 function mergeDocs(remote: KnowledgeDoc[], local: KnowledgeDoc[]): KnowledgeDoc[] {
@@ -145,7 +184,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (next.length === 0) {
       next = [createDemoDoc()];
     }
-    setDocs(next);
+    setDocs(next.map(withAutoMeta));
     const activeId = remote?.activeDocId ?? loadActiveDocId(user.id) ?? next[0]?.id ?? null;
     setStoredActiveId(activeId);
     setHydrated(true);
@@ -255,6 +294,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const doc: KnowledgeDoc = {
       id,
       title: input.title.trim() || '未命名材料',
+      ...(input.subtitle?.trim() ? { subtitle: input.subtitle.trim() } : {}),
+      ...(input.summary?.trim() ? { summary: input.summary.trim() } : {}),
       text: input.text,
       origin: input.origin,
       createdAt: now,

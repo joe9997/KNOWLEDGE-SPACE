@@ -5,7 +5,7 @@ import type { PaletteTheme } from '../../lib/learningPrefs';
 import type { GraphView } from './graphLayout';
 import { GalaxyGraph } from './GalaxyGraph';
 import type { GalaxyGraphHandle } from './GalaxyGraph';
-import { VennGraph } from './VennGraph';
+import { VennGraph, type VennGraphHandle } from './VennGraph';
 
 interface KnowledgeGraphProps {
   doc: KnowledgeDoc;
@@ -30,6 +30,7 @@ export function KnowledgeGraph({
 }: KnowledgeGraphProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const galaxyRef = useRef<GalaxyGraphHandle>(null);
+  const vennRef = useRef<VennGraphHandle>(null);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -61,9 +62,11 @@ export function KnowledgeGraph({
     <div className="graph-shell" ref={shellRef}>
       {view === 'venn' ? (
         <VennGraph
+          ref={vennRef}
           doc={doc}
           selectedId={selectedId}
           onSelect={onSelect}
+          onZoomChange={setZoomPercent}
           offsetDays={offsetDays}
           paletteTheme={paletteTheme}
         />
@@ -102,7 +105,7 @@ export function KnowledgeGraph({
 
       <p className="graph-hint">
         {view === 'venn'
-          ? '每个圆是一级主题，交叠处是彼此关联的概念 · 点击节点查看原文'
+          ? '拖动平移 · 滚轮缩放 · 每个圆是一级主题，点击节点查看原文'
           : view === 'galaxy'
             ? '拖动旋转星系 · 滚轮缩放 · 点击节点查看原文'
             : '拖动平移图谱 · 滚轮缩放 · 点击节点查看原文'}
@@ -136,40 +139,46 @@ export function KnowledgeGraph({
 
         <div className="graph-toolbar__right">
           <div className="graph-tools">
-            {view !== 'venn' && (
-              <>
-                <button
-                  type="button"
-                  className="tool-button"
-                  onClick={() => galaxyRef.current?.zoomBy(-1)}
-                  disabled={zoomPercent <= 60}
-                  aria-label="缩小"
-                  title="缩小"
-                >
-                  <ZoomOut size={15} />
-                </button>
-                <span className="zoom-value">{zoomPercent}%</span>
-                <button
-                  type="button"
-                  className="tool-button"
-                  onClick={() => galaxyRef.current?.zoomBy(1)}
-                  disabled={zoomPercent >= 260}
-                  aria-label="放大"
-                  title="放大"
-                >
-                  <ZoomIn size={15} />
-                </button>
-                <button
-                  type="button"
-                  className="tool-button"
-                  onClick={() => galaxyRef.current?.reset()}
-                  aria-label="重置视图"
-                  title="重置视图"
-                >
-                  <RotateCcw size={14} />
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              className="tool-button"
+              onClick={() =>
+                view === 'venn'
+                  ? vennRef.current?.zoomBy(-1)
+                  : galaxyRef.current?.zoomBy(-1)
+              }
+              disabled={zoomPercent <= 60}
+              aria-label="缩小"
+              title="缩小"
+            >
+              <ZoomOut size={15} />
+            </button>
+            <span className="zoom-value">{zoomPercent}%</span>
+            <button
+              type="button"
+              className="tool-button"
+              onClick={() =>
+                view === 'venn'
+                  ? vennRef.current?.zoomBy(1)
+                  : galaxyRef.current?.zoomBy(1)
+              }
+              disabled={zoomPercent >= 260}
+              aria-label="放大"
+              title="放大"
+            >
+              <ZoomIn size={15} />
+            </button>
+            <button
+              type="button"
+              className="tool-button"
+              onClick={() =>
+                view === 'venn' ? vennRef.current?.reset() : galaxyRef.current?.reset()
+              }
+              aria-label="重置视图"
+              title="重置视图"
+            >
+              <RotateCcw size={14} />
+            </button>
             <button
               type="button"
               className="tool-button"

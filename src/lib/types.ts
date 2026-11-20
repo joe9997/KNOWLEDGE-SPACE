@@ -51,6 +51,10 @@ export interface SourceAnnotation {
 export interface KnowledgeDoc {
   id: string;
   title: string;
+  /** 自动生成的副标题（论文标题 / 首句），旧数据可能没有 */
+  subtitle?: string;
+  /** 自动摘要，旧数据可能没有 */
+  summary?: string;
   text: string;
   origin: DocOrigin;
   createdAt: number;

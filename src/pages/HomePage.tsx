@@ -123,7 +123,7 @@ export function HomePage({
           ) : (
             <>
               <p className="home-card__empty">
-                粘贴一段讲义，或拖入 .txt / .md 文件，回源会把它整理成可以点回原句的知识节点。
+                粘贴一段讲义，或拖入 PDF / Word / PPT / 文本文件，回源会把它整理成可以点回原句的知识节点。
               </p>
               <div className="continue__footer">
                 <button type="button" className="glass-button" onClick={onNewSession}>
