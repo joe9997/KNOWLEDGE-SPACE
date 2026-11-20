@@ -32,6 +32,19 @@ export interface Relation {
   to: string;
 }
 
+/** 用户在原文里划出的一段批注 */
+export interface SourceAnnotation {
+  id: string;
+  /** 原文起始字符位置（含） */
+  start: number;
+  /** 原文结束字符位置（不含） */
+  end: number;
+  /** 划选的原文，便于离线展示与校验 */
+  quote: string;
+  note: string;
+  createdAt: number;
+}
+
 export interface KnowledgeDoc {
   id: string;
   title: string;
@@ -41,6 +54,8 @@ export interface KnowledgeDoc {
   updatedAt: number;
   nodes: KnowledgeNode[];
   relations: Relation[];
+  /** 原文批注；旧数据可能没有该字段 */
+  annotations?: SourceAnnotation[];
 }
 
 export interface ApiConfig {

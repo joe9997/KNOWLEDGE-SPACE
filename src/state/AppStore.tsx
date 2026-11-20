@@ -38,9 +38,11 @@ import type {
   KnowledgeDoc,
   KnowledgeNode,
   ReviewGrade,
+  SourceAnnotation,
   User,
 } from '../lib/types';
 import { validateApiConfig } from '../lib/llm';
+import { normalizeAnnotationRange, overlapsAnnotation } from '../lib/annotations';
 import { fetchSnapshot, pushSnapshot } from '../lib/persistence';
 import { getServerAiStatus } from '../lib/serverAi';
 import type { ServerAiStatus } from '../lib/serverAi';
@@ -72,6 +74,8 @@ interface AppContextValue {
   createDoc: (input: CreateDocInput) => string;
   renameDoc: (id: string, title: string) => void;
   deleteDoc: (id: string) => void;
+  addAnnotation: (docId: string, input: { start: number; end: number; note: string }) => void;
+  removeAnnotation: (docId: string, annotationId: string) => void;
   reviewNode: (docId: string, nodeId: string, grade: ReviewGrade) => void;
   resetDemo: () => string;
   updateApiConfig: (config: ApiConfig | null) => void;
@@ -257,6 +261,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updatedAt: now,
       nodes: input.nodes,
       relations: [],
+      annotations: [],
     };
     setDocs((prev) => [doc, ...prev]);
     setStoredActiveId(id);
@@ -285,6 +290,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [activeDoc, docs],
   );
+
+  const addAnnotation = useCallback(
+    (docId: string, input: { start: number; end: number; note: string }) => {
+      const note = input.note.trim();
+      if (!note) {
+        return;
+      }
+      setDocs((prev) =>
+        prev.map((doc) => {
+          if (doc.id !== docId) {
+            return doc;
+          }
+          const range = normalizeAnnotationRange(doc.text, input.start, input.end);
+          if (!range) {
+            return doc;
+          }
+          const existing = doc.annotations ?? [];
+          if (overlapsAnnotation(existing, range.start, range.end)) {
+            return doc;
+          }
+          const annotation: SourceAnnotation = {
+            id: createId('note'),
+            start: range.start,
+            end: range.end,
+            quote: range.quote,
+            note: note.slice(0, 2000),
+            createdAt: Date.now(),
+          };
+          return {
+            ...doc,
+            updatedAt: Date.now(),
+            annotations: [...existing, annotation],
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  const removeAnnotation = useCallback((docId: string, annotationId: string) => {
+    setDocs((prev) =>
+      prev.map((doc) => {
+        if (doc.id !== docId || !doc.annotations?.length) {
+          return doc;
+        }
+        const next = doc.annotations.filter((item) => item.id !== annotationId);
+        if (next.length === doc.annotations.length) {
+          return doc;
+        }
+        return { ...doc, updatedAt: Date.now(), annotations: next };
+      }),
+    );
+  }, []);
 
   const reviewNode = useCallback(
     (docId: string, nodeId: string, grade: ReviewGrade) => {
@@ -386,6 +444,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createDoc,
       renameDoc,
       deleteDoc,
+      addAnnotation,
+      removeAnnotation,
       reviewNode,
       resetDemo,
       updateApiConfig,
@@ -416,6 +476,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createDoc,
       renameDoc,
       deleteDoc,
+      addAnnotation,
+      removeAnnotation,
       reviewNode,
       resetDemo,
       updateApiConfig,
