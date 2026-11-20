@@ -23,6 +23,15 @@ export interface StoredRelation {
   to: string;
 }
 
+export interface StoredAnnotation {
+  id: string;
+  start: number;
+  end: number;
+  quote: string;
+  note: string;
+  createdAt: number;
+}
+
 export interface StoredDoc {
   id: string;
   title: string;
@@ -32,6 +41,7 @@ export interface StoredDoc {
   updatedAt: number;
   nodes: StoredNode[];
   relations: StoredRelation[];
+  annotations: StoredAnnotation[];
 }
 
 export interface Snapshot {
@@ -44,6 +54,8 @@ const MAX_DOCS = 500;
 const MAX_NODES = 2000;
 const MAX_RELATIONS = 5000;
 const MAX_TEXT = 500_000;
+const MAX_ANNOTATIONS = 500;
+const MAX_ANNOTATION_NOTE = 2000;
 
 /** 存储层错误：带 HTTP 状态码和内部细节；对外只回一句人话，细节进日志。 */
 export class StoreError extends Error {
@@ -106,6 +118,28 @@ function sanitizeNode(raw: unknown): StoredNode | null {
   };
 }
 
+function sanitizeAnnotation(raw: unknown, textLength: number): StoredAnnotation | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const item = raw as Record<string, unknown>;
+  const id = str(item.id);
+  const start = num(item.start, -1);
+  const end = num(item.end, -1);
+  const note = str(item.note).trim();
+  if (!id || !note || start < 0 || end <= start || end > textLength) {
+    return null;
+  }
+  return {
+    id,
+    start,
+    end,
+    quote: str(item.quote).slice(0, 2000),
+    note: note.slice(0, MAX_ANNOTATION_NOTE),
+    createdAt: num(item.createdAt, Date.now()),
+  };
+}
+
 function sanitizeDoc(raw: unknown): StoredDoc | null {
   if (!raw || typeof raw !== 'object') {
     return null;
@@ -115,6 +149,13 @@ function sanitizeDoc(raw: unknown): StoredDoc | null {
   if (!id) {
     return null;
   }
+  const text = str(doc.text).slice(0, MAX_TEXT);
+  const annotations = Array.isArray(doc.annotations)
+    ? doc.annotations
+        .slice(0, MAX_ANNOTATIONS)
+        .map((item) => sanitizeAnnotation(item, text.length))
+        .filter((item): item is StoredAnnotation => item !== null)
+    : [];
   const nodes = Array.isArray(doc.nodes)
     ? doc.nodes
         .slice(0, MAX_NODES)
@@ -134,12 +175,13 @@ function sanitizeDoc(raw: unknown): StoredDoc | null {
   return {
     id,
     title: str(doc.title, 'untitled').slice(0, 200),
-    text: str(doc.text).slice(0, MAX_TEXT),
+    text,
     origin: str(doc.origin, 'local'),
     createdAt: num(doc.createdAt, Date.now()),
     updatedAt: num(doc.updatedAt, Date.now()),
     nodes,
     relations,
+    annotations,
   };
 }
 
@@ -183,6 +225,26 @@ export function validateDocsPayload(raw: unknown): string | null {
     }
     if (Array.isArray(doc.relations) && doc.relations.length > MAX_RELATIONS) {
       return `会话「${title}」关系数 ${doc.relations.length} 超过上限 ${MAX_RELATIONS} 条。`;
+    }
+    if (Array.isArray(doc.annotations)) {
+      if (doc.annotations.length > MAX_ANNOTATIONS) {
+        return `会话「${title}」批注数 ${doc.annotations.length} 超过上限 ${MAX_ANNOTATIONS} 条。`;
+      }
+      for (const item of doc.annotations) {
+        if (!item || typeof item !== 'object') {
+          return `会话「${title}」中存在无效批注。`;
+        }
+        const annotation = item as Record<string, unknown>;
+        const note = typeof annotation.note === 'string' ? annotation.note : '';
+        const start = typeof annotation.start === 'number' ? annotation.start : -1;
+        const end = typeof annotation.end === 'number' ? annotation.end : -1;
+        if (note.length > MAX_ANNOTATION_NOTE) {
+          return `会话「${title}」有批注超过 ${MAX_ANNOTATION_NOTE} 字上限。`;
+        }
+        if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > text.length) {
+          return `会话「${title}」中存在范围无效的批注。`;
+        }
+      }
     }
   }
   return null;
