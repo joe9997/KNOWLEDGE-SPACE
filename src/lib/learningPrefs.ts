@@ -1,4 +1,4 @@
-import type { Mastery } from './types';
+import type { GraphView, Mastery } from './types';
 
 export type PaletteTheme = 'nebula' | 'aurora' | 'sakura' | 'solar';
 
@@ -17,6 +17,8 @@ export interface LearningPrefs {
   baseDays: number;
   /** 题库默认方式 */
   quizMode: QuizDefault;
+  /** 打开图谱时默认使用的呈现方式 */
+  graphView: GraphView;
 }
 
 export interface PaletteThemeOption {
@@ -66,11 +68,20 @@ export const QUIZ_OPTIONS: Array<{ id: QuizDefault; label: string; hint: string 
   { id: 'self', label: '问答自评', hint: '先回忆，再对照原文' },
 ];
 
+export const GRAPH_VIEW_OPTIONS: Array<{ id: GraphView; label: string; hint: string }> = [
+  { id: 'galaxy', label: '星系图', hint: '默认视图，拖动可旋转整个星盘' },
+  { id: 'radial', label: '辐射图', hint: '从中心向外按层级展开' },
+  { id: 'tree', label: '树形图', hint: '从左到右阅读大纲结构' },
+  { id: 'timeline', label: '时间线', hint: '按最近复习时间排列节点' },
+  { id: 'venn', label: '韦恩图', hint: '用重叠的集合看一级主题与交集' },
+];
+
 export const DEFAULT_PREFS: LearningPrefs = {
   palette: 'nebula',
   rhythm: 'steady',
   baseDays: 3,
   quizMode: 'ask',
+  graphView: 'galaxy',
 };
 
 export const MIN_BASE_DAYS = 1;
@@ -162,11 +173,15 @@ export function normalizePrefs(value: unknown): LearningPrefs {
   const quizMode = QUIZ_OPTIONS.some((option) => option.id === raw.quizMode)
     ? (raw.quizMode as QuizDefault)
     : DEFAULT_PREFS.quizMode;
+  const graphView = GRAPH_VIEW_OPTIONS.some((option) => option.id === raw.graphView)
+    ? (raw.graphView as GraphView)
+    : DEFAULT_PREFS.graphView;
   const baseDaysValue = Number(raw.baseDays);
   return {
     palette,
     rhythm,
     quizMode,
+    graphView,
     baseDays: Number.isFinite(baseDaysValue)
       ? clamp(Math.round(baseDaysValue), MIN_BASE_DAYS, MAX_BASE_DAYS)
       : DEFAULT_PREFS.baseDays,

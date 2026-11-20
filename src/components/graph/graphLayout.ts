@@ -1,12 +1,12 @@
-import type { KnowledgeDoc, KnowledgeNode, Relation } from '../../lib/types';
+import type { GraphView, KnowledgeDoc, KnowledgeNode, Relation } from '../../lib/types';
+
+export type { GraphView };
 
 export interface GraphLink {
   from: string;
   to: string;
   kind: 'tree' | 'relation';
 }
-
-export type GraphView = 'galaxy' | 'radial' | 'tree' | 'timeline';
 
 export interface SpherePoint {
   x: number;

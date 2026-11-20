@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Info, BookOpen, ListChecks, SlidersHorizontal } from 'lucide-react';
+import { Info, BookOpen, ListChecks, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { KnowledgeGraph } from '../components/graph/KnowledgeGraph';
 import { LearningPrefsModal } from '../components/graph/LearningPrefsModal';
 import { SourcePanel } from '../components/source/SourcePanel';
@@ -24,7 +24,7 @@ const ORIGIN_LABEL: Record<KnowledgeDoc['origin'], string> = {
 };
 
 export function GraphPage({ doc, onStartQuiz, onOpenQuizBank, onNavigate }: GraphPageProps) {
-  const { now, offsetDays, activeDocId, learningPrefs } = useApp();
+  const { now, offsetDays, activeDocId, learningPrefs, updateLearningPrefs } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
 
@@ -136,6 +136,14 @@ export function GraphPage({ doc, onStartQuiz, onOpenQuizBank, onNavigate }: Grap
             <SlidersHorizontal size={15} />
             个性化
           </button>
+          <button
+            type="button"
+            className="glass-button graph-quiz-button graph-assistant-button"
+            onClick={() => onNavigate('assistant')}
+          >
+            <Sparkles size={15} />
+            AI 助手
+          </button>
           <TimeTravel compact />
         </div>
       </header>
@@ -148,6 +156,8 @@ export function GraphPage({ doc, onStartQuiz, onOpenQuizBank, onNavigate }: Grap
           onExport={() => downloadMarkdown(doc, now)}
           offsetDays={offsetDays}
           paletteTheme={learningPrefs.palette}
+          view={learningPrefs.graphView}
+          onViewChange={(graphView) => updateLearningPrefs({ graphView })}
         />
         {selectedNode && (
           <SourcePanel

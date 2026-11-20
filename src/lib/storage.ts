@@ -86,13 +86,28 @@ export function saveLearningPrefs(userId: string, prefs: LearningPrefs): void {
   }
 }
 
-/** API 配置按用户隔离（BYOK 的 key 只在当前标签页 sessionStorage，刷新即失效） */
+/**
+ * API 配置按用户隔离，持久化在 localStorage。
+ * Key 与用户 ID 绑定，同一浏览器下次打开自动带出，不必重新输入。
+ */
 function apiConfigKey(userId: string): string {
   return `${API_KEY}.${userId}`;
 }
 
+/** 旧版本把配置放在 sessionStorage，这里顺手迁移到 localStorage */
+function migrateLegacyApiConfig(userId: string): string | null {
+  const legacy = sessionStorage.getItem(`${API_KEY}.${userId}`);
+  if (!legacy) {
+    return null;
+  }
+  localStorage.setItem(apiConfigKey(userId), legacy);
+  sessionStorage.removeItem(`${API_KEY}.${userId}`);
+  return legacy;
+}
+
 export function loadApiConfig(userId: string): import('./types').ApiConfig | null {
-  const parsed = safeParse<import('./types').ApiConfig>(sessionStorage.getItem(apiConfigKey(userId)));
+  const raw = localStorage.getItem(apiConfigKey(userId)) ?? migrateLegacyApiConfig(userId);
+  const parsed = safeParse<import('./types').ApiConfig>(raw);
   if (!parsed || typeof parsed.apiKey !== 'string' || typeof parsed.baseUrl !== 'string') {
     return null;
   }
@@ -100,9 +115,10 @@ export function loadApiConfig(userId: string): import('./types').ApiConfig | nul
 }
 
 export function saveApiConfig(userId: string, config: import('./types').ApiConfig): void {
-  sessionStorage.setItem(apiConfigKey(userId), JSON.stringify(config));
+  localStorage.setItem(apiConfigKey(userId), JSON.stringify(config));
 }
 
 export function clearApiConfig(userId: string): void {
-  sessionStorage.removeItem(apiConfigKey(userId));
+  localStorage.removeItem(apiConfigKey(userId));
+  sessionStorage.removeItem(`${API_KEY}.${userId}`);
 }

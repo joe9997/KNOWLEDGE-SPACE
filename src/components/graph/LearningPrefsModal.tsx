@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ListChecks, Palette, Timer } from 'lucide-react';
+import { LayoutGrid, ListChecks, Palette, Timer } from 'lucide-react';
 import {
+  GRAPH_VIEW_OPTIONS,
   MAX_BASE_DAYS,
   MIN_BASE_DAYS,
   PALETTE_THEMES,
@@ -48,6 +49,30 @@ export function LearningPrefsModal({ open, onClose }: LearningPrefsModalProps) {
       eyebrow="PERSONAL STUDY"
       size="md"
     >
+      <section className="prefs-section">
+        <p className="prefs-section__title">
+          <LayoutGrid size={14} />
+          图谱视图
+        </p>
+        <p className="prefs-section__hint">
+          除了默认的思维导图，还可以换成韦恩图等呈现方式；图谱右上角的切换条也会同步。
+        </p>
+        <div className="prefs-chips">
+          {GRAPH_VIEW_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              className="prefs-chip"
+              aria-pressed={learningPrefs.graphView === option.id}
+              onClick={() => updateLearningPrefs({ graphView: option.id })}
+              title={option.hint}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="prefs-section">
         <p className="prefs-section__title">
           <Palette size={14} />

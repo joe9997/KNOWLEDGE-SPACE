@@ -321,7 +321,7 @@ export function ApiConfigPage() {
     updateApiConfig(currentConfig);
     setFeedback({
       kind: 'success',
-      message: '配置已保存到当前标签页的 sessionStorage。刷新页面仍可用，关闭标签页即清除。',
+      message: '配置已与当前账号绑定，保存在本浏览器。下次打开会自动带出，无需重新输入。',
     });
   };
 
@@ -335,7 +335,7 @@ export function ApiConfigPage() {
     setApiKey('');
     setFeedback({
       kind: 'info',
-      message: '已清除当前标签页的 API 配置，回源回到本地规则整理模式。',
+      message: '已清除本浏览器保存的 API 配置，回源回到本地规则整理模式。',
     });
   };
 

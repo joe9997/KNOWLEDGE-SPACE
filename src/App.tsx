@@ -192,7 +192,7 @@ export default function App() {
               <AssistantChat
                 variant="page"
                 open
-                doc={null}
+                doc={activeDoc}
                 onClose={() => navigate('graph')}
               />
             )}
