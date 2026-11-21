@@ -24,6 +24,7 @@ import {
 import type { UserRecord } from './auth.ts';
 import { rateLimit } from './ratelimit.ts';
 import { readSnapshot, sanitizeDocs, validateDocsPayload, writeSnapshot } from './store.ts';
+import { isSupabaseConfigured } from './supabase.ts';
 
 const MAX_CHUNK_CHARS = 4000;
 const MAX_CHAT_CONTEXT = 8000;
@@ -57,6 +58,11 @@ function sanitizeChatContent(raw: unknown): ChatContent | null {
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const config = readServerConfig();
+if (!isSupabaseConfigured()) {
+  console.warn(
+    '[storage] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 未配置：当前使用本地 JSON 存储，重启或重新部署会丢失账号。',
+  );
+}
 const app = express();
 
 class HttpError extends Error {
@@ -147,6 +153,8 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'knowledge-space-api',
+    storage: isSupabaseConfigured() ? 'supabase' : 'file',
+    persistent: isSupabaseConfigured(),
     ai: {
       available: Boolean(config.ai),
       model: config.ai?.model ?? null,
@@ -448,6 +456,94 @@ app.post('/api/ai/extract', requireAuth, aiLimiter, async (req: AuthedRequest, r
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[ai] extract failed · ${message}`);
+    res.status(502).json({ error: message });
+  }
+});
+
+app.post('/api/ai/elaborate', requireAuth, aiLimiter, async (req: AuthedRequest, res: Response) => {
+  const ai = readUserAiConfig(req.body?.config) ?? config.ai;
+  if (!ai) {
+    res.status(503).json({ error: NO_AI_MESSAGE });
+    return;
+  }
+  type RawNode = { id?: unknown; title?: unknown; quote?: unknown };
+  const rawNodes: RawNode[] = Array.isArray(req.body?.nodes)
+    ? (req.body.nodes as RawNode[])
+    : [];
+  const text = typeof req.body?.text === 'string' ? req.body.text : '';
+  if (rawNodes.length === 0) {
+    res.status(400).json({ error: '请求缺少 nodes 字段。' });
+    return;
+  }
+  // 限规模：每个节点 250 字上限，总共 6000 字上限，避免 prompt 过大
+  const nodes = rawNodes
+    .slice(0, 16)
+    .map((item: RawNode) => {
+      const id = typeof item.id === 'string' ? item.id : '';
+      const title = typeof item.title === 'string' ? item.title.trim() : '';
+      const quote = typeof item.quote === 'string' ? item.quote.trim() : '';
+      return { id, title, quote };
+    })
+    .filter((node: { id: string; title: string; quote: string }) => node.id && node.title);
+
+  const textHint = text
+    ? `\n\n全文参考（截取前 ${Math.min(2000, text.length)} 字）：\n${text.replace(/\s+/g, ' ').trim().slice(0, 2000)}`
+    : '';
+
+  const systemPrompt =
+    '你是知识讲解助手。严格只使用用户提供的原文信息扩写讲解，不引入外部知识。每个讲解 120-200 字，结构是：先给一句话总结核心，再把原句引用里的重点词加粗并展开解释，最后补一句它在整篇材料里的作用。只输出 JSON 数组，格式：[{"id":"...","explanation":"..."}]，不要输出任何解释文字或代码块。';
+
+  const userPrompt = [
+    '请为以下知识节点各写一段详细讲解。每个讲解必须基于给出的「原文引用」展开，不得编造。',
+    '',
+    ...nodes.map(
+      (node, index) =>
+        `${index + 1}. [${node.id}] ${node.title}${node.quote ? `\n   原文引用：${node.quote}` : ''}`,
+    ),
+    textHint,
+  ].join('\n');
+
+  try {
+    const reply = await chat(
+      ai,
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      (config.extractTimeoutMs ?? 60_000) + 30_000,
+    );
+
+    // 从回复里抽 JSON 数组（容忍模型输出前后多余文字）
+    const jsonMatch =
+      reply.match(/\[[\s\S]*\]/) ??
+      reply.match(/```(?:json)?\s*([\s\S]*?)```/)?.[1] ??
+      reply.match(/\{[\s\S]*\}/);
+    let parsed: unknown;
+    if (jsonMatch) {
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch {
+        parsed = null;
+      }
+    }
+
+    const map = new Map<string, string>();
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        const id = (item as { id?: unknown }).id;
+        const exp = (item as { explanation?: unknown }).explanation;
+        if (typeof id === 'string' && typeof exp === 'string' && exp.trim()) {
+          map.set(id, exp.trim().slice(0, 600));
+        }
+      }
+    }
+    console.log(
+      `[ai] elaborate ok · 处理 ${nodes.length} 个节点，生成 ${map.size} 段讲解`,
+    );
+    res.json({ explanations: Object.fromEntries(map) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[ai] elaborate failed · ${message}`);
     res.status(502).json({ error: message });
   }
 });

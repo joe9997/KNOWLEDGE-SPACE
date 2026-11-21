@@ -4,6 +4,8 @@
     'Segoe UI', sans-serif;
   --font-sans: 'Inter', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui, -apple-system,
     'Segoe UI', sans-serif;
+  /* 助手长文本的标题用衬线字体，和正文的无衬线拉开层次 */
+  --font-display: 'Georgia', 'Iowan Old Style', 'Songti SC', 'Noto Serif SC', 'SimSun', serif;
 
   --sidebar-width: 280px;
   --sidebar-gap: 16px;
@@ -77,6 +79,12 @@
   --node-mastered-glow: rgba(112, 231, 186, 0.42);
   --node-muted: rgba(203, 221, 246, 0.34);
   --node-ring: #ff4d6d;
+  /* 中心主节点专用色：白心 → 薰衣草紫 → 粉的径向渐变，不参与掌握度配色 */
+  --node-root: #e0a8d8;
+  --node-root-hot: #ffffff;
+  --node-root-mid: #d8bcf5;
+  --node-root-edge: #ee9fd6;
+  --node-root-ring: rgba(214, 190, 255, 0.34);
 
   --mark-bg: rgba(255, 208, 128, 0.22);
   --mark-line: rgba(245, 199, 116, 0.8);
@@ -159,6 +167,12 @@
   --node-mastered-glow: rgba(18, 135, 106, 0.32);
   --node-muted: rgba(45, 75, 108, 0.32);
   --node-ring: #c9184a;
+  /* 中心主节点专用色：白心 → 薰衣草紫 → 粉的径向渐变，不参与掌握度配色 */
+  --node-root: #d9a8cf;
+  --node-root-hot: #fff8fd;
+  --node-root-mid: #c9b2ee;
+  --node-root-edge: #e08cc5;
+  --node-root-ring: rgba(140, 124, 200, 0.34);
 
   --mark-bg: rgba(255, 208, 108, 0.42);
   --mark-line: rgba(179, 127, 24, 0.6);

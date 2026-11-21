@@ -2,6 +2,9 @@
 node_modules/
 .pnpm-store/
 
+# 旧的本地副本，不随仓库发布
+projec1/
+
 # 构建产物
 dist/
 dist-single/

@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarCheck2, LogOut, Pencil, Plus, Search, Settings2, Sparkles, Trash2, X } from 'lucide-react';
 import { OrbitMark } from '../OrbitMark';
-import { isDue } from '../../lib/review';
+import { isDue, isSoon } from '../../lib/review';
 import type { AppView, KnowledgeDoc } from '../../lib/types';
 import { useApp } from '../../state/AppStore';
 
@@ -14,12 +14,17 @@ interface SidebarProps {
   onCloseMobile: () => void;
   onNavigate: (view: AppView) => void;
   onNewSession: () => void;
+  onOpenAssistant: () => void;
   onOpenReview: () => void;
   onOpenDoc: (id: string) => void;
 }
 
 function dueCount(doc: KnowledgeDoc, now: number): number {
-  return doc.nodes.filter((node) => isDue(node.nextReviewAt, now)).length;
+  return doc.nodes.filter((node) => node.mastery !== 2 && (isDue(node.nextReviewAt, now) || isSoon(node.nextReviewAt, now, 3))).length;
+}
+
+function totalDueCount(docs: KnowledgeDoc[], now: number): number {
+  return docs.reduce((sum, doc) => sum + dueCount(doc, now), 0);
 }
 
 interface SessionMenuState {
@@ -35,10 +40,11 @@ export function Sidebar({
   onCloseMobile,
   onNavigate,
   onNewSession,
+  onOpenAssistant,
   onOpenReview,
   onOpenDoc,
 }: SidebarProps) {
-  const { docs, activeDoc, activeDocId, now, setActiveDocId, renameDoc, deleteDoc, currentUser, logout } =
+  const { docs, activeDocId, now, setActiveDocId, renameDoc, deleteDoc, currentUser, logout } =
     useApp();
   const [query, setQuery] = useState('');
   const [menu, setMenu] = useState<SessionMenuState | null>(null);
@@ -67,7 +73,7 @@ export function Sidebar({
     );
   }, [docs, query]);
 
-  const activeDue = activeDoc ? dueCount(activeDoc, now) : 0;
+  const activeDue = totalDueCount(docs, now);
 
   const closeMenu = () => {
     setMenu(null);
@@ -251,7 +257,7 @@ export function Sidebar({
             type="button"
             className={`assistant-entry ${view === 'assistant' ? 'is-active' : ''}`.trim()}
             onClick={() => {
-              onNavigate('assistant');
+              onOpenAssistant();
               if (isMobile) {
                 onCloseMobile();
               }

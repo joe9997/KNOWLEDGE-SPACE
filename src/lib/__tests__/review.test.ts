@@ -56,12 +56,16 @@ describe('简化 SM-2 复习算法', () => {
     expect(isDue(NOW - 1, NOW)).toBe(true);
     expect(isDue(NOW + 1, NOW)).toBe(false);
     expect(statusOf({ mastery: 0, nextReviewAt: NOW - 1 }, NOW)).toBe('due');
-    expect(statusOf({ mastery: 1, nextReviewAt: NOW + DAY_MS }, NOW)).toBe('fuzzy');
+    // 剩余 1 天 → soon（黄）
+    expect(statusOf({ mastery: 1, nextReviewAt: NOW + DAY_MS }, NOW)).toBe('soon');
+    // 剩余 5 天 → scheduled（绿）
+    expect(statusOf({ mastery: 1, nextReviewAt: NOW + 5 * DAY_MS }, NOW)).toBe('scheduled');
     expect(statusOf({ mastery: 2, nextReviewAt: NOW + DAY_MS }, NOW)).toBe('mastered');
   });
 
   it('相对时间文案', () => {
-    expect(formatRelativeDue(NOW - 5, NOW)).toBe('已到期');
+    // 刚过期 5ms → 今天到期
+    expect(formatRelativeDue(NOW - 5, NOW)).toBe('今天到期');
     expect(formatRelativeDue(NOW + Math.ceil(DAY_MS * 3.2), NOW)).toBe('4 天后');
   });
 });

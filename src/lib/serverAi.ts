@@ -112,3 +112,23 @@ export async function extractWithServer(
   }
   return merged;
 }
+
+export async function elaborateNodesWithServer(
+  nodes: Array<{ id: string; title: string; quote: string }>,
+  text: string,
+  config?: { baseUrl: string; apiKey: string; model: string } | null,
+): Promise<Record<string, string>> {
+  if (nodes.length === 0) {
+    return {};
+  }
+  const response = await apiFetch('/api/ai/elaborate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nodes, text, config }),
+  });
+  if (!response.ok) {
+    throw new Error(`AI 讲解失败 · ${await readApiError(response)}`);
+  }
+  const data = (await response.json()) as { explanations?: Record<string, string> };
+  return data.explanations ?? {};
+}
