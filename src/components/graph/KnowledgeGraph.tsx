@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileText, Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
+import { FileDown, Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
 import type { KnowledgeDoc } from '../../lib/types';
 import type { PaletteTheme } from '../../lib/learningPrefs';
 import type { GraphView } from './graphLayout';
@@ -11,7 +11,7 @@ interface KnowledgeGraphProps {
   doc: KnowledgeDoc;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onExport: () => void;
+  onExportPdf: () => void;
   offsetDays: number;
   paletteTheme: PaletteTheme;
   view: GraphView;
@@ -22,7 +22,7 @@ export function KnowledgeGraph({
   doc,
   selectedId,
   onSelect,
-  onExport,
+  onExportPdf,
   offsetDays,
   paletteTheme,
   view,
@@ -189,9 +189,14 @@ export function KnowledgeGraph({
               {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
             </button>
           </div>
-          <button type="button" className="toolbar-export" onClick={onExport}>
-            <FileText size={13} />
-            导出笔记
+          <button
+            type="button"
+            className="toolbar-export"
+            onClick={onExportPdf}
+            title="导出 PDF 笔记（打印为 PDF）"
+          >
+            <FileDown size={13} />
+            导出 PDF
           </button>
         </div>
       </div>
