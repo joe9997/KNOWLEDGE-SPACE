@@ -5,7 +5,7 @@ import { LearningPrefsModal } from '../components/graph/LearningPrefsModal';
 import { SourcePanel } from '../components/source/SourcePanel';
 import { TimeTravel } from '../components/TimeTravel';
 import { DEMO_NOTICE } from '../data/demo';
-import { countRelations, downloadMarkdown } from '../lib/exportMarkdown';
+import { countRelations, downloadPdf } from '../lib/exportMarkdown';
 import { isDue } from '../lib/review';
 import type { AppView, KnowledgeDoc } from '../lib/types';
 import { useApp } from '../state/AppStore';
@@ -163,7 +163,7 @@ export function GraphPage({
           doc={doc}
           selectedId={selectedId}
           onSelect={setSelectedId}
-          onExport={() => downloadMarkdown(doc, now)}
+          onExportPdf={() => downloadPdf(doc, now)}
           offsetDays={offsetDays}
           paletteTheme={learningPrefs.palette}
           view={learningPrefs.graphView}

@@ -111,19 +111,28 @@ describe('buildChoiceQuestions', () => {
     expect(twoOptionQuestion.options).toHaveLength(2);
   });
 
-  it('干扰项优先同父节点，再选同层节点，最后选其余节点', () => {
-    const doc = makeDoc(BASE_DOC.text, [
-      makeNode('target', '原文甲。', { parentId: 'parent', level: 1 }),
-      makeNode('other', '原文乙。', { parentId: 'other-parent', level: 4 }),
-      makeNode('same-level', '原文丙。', { parentId: 'other-parent', level: 1 }),
-      makeNode('sibling-b', '原文丁。', { parentId: 'parent', level: 3 }),
-      makeNode('sibling-a', '原文戊。', { parentId: 'parent', level: 2 }),
-    ]);
+  it('干扰项按关键句相似度优先，而不是按节点层级', () => {
+    const doc = makeDoc(
+      [
+        '原文甲。',
+        '原文乙。',
+        '原文丙，补充一些背景信息。',
+        '原文丁，再增加更多更多更多解释内容。',
+        '原文戊，稍微补充。',
+      ].join('\n'),
+      [
+        makeNode('target', '原文甲。', { parentId: 'parent', level: 1 }),
+        makeNode('other', '原文乙。', { parentId: 'other-parent', level: 4 }),
+        makeNode('same-level', '原文丙，补充一些背景信息。', { parentId: 'other-parent', level: 1 }),
+        makeNode('sibling-b', '原文丁，再增加更多更多更多解释内容。', { parentId: 'parent', level: 3 }),
+        makeNode('sibling-a', '原文戊，稍微补充。', { parentId: 'parent', level: 2 }),
+      ],
+    );
 
     const [question] = buildChoiceQuestions(doc, ['target'], () => 0.999999);
     expect(question.options.map((option) => option.id)).toEqual([
       'target',
-      'sibling-b',
+      'other',
       'sibling-a',
       'same-level',
     ]);
