@@ -18,6 +18,7 @@ import {
   apiRegister,
   apiUpdateProfile,
   loginWithPasskey,
+  resolveApiUrl,
 } from '../lib/auth';
 import {
   clearApiConfig,
@@ -48,6 +49,9 @@ import { fetchSnapshot, pushSnapshot } from '../lib/persistence';
 import { getServerAiStatus } from '../lib/serverAi';
 import type { ServerAiStatus } from '../lib/serverAi';
 
+/** 本地模式使用的虚拟用户 id（数据只存浏览器，不参与云端同步） */
+const LOCAL_USER_ID = 'local-device';
+
 interface CreateDocInput {
   title: string;
   subtitle?: string;
@@ -69,6 +73,11 @@ interface AppContextValue {
   aiReady: boolean;
   currentUser: User | null;
   authLoading: boolean;
+  /** 后端可达性：null = 探测中，false = 后端不可用（纯静态托管，如 GitHub Pages） */
+  backendAvailable: boolean | null;
+  /** 不登录，直接用本地模式（数据只存浏览器 localStorage） */
+  enterLocalMode: () => void;
+  localMode: boolean;
   learningPrefs: LearningPrefs;
   updateLearningPrefs: (patch: Partial<LearningPrefs>) => void;
   refreshServerAi: () => Promise<void>;
@@ -150,6 +159,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [serverAi, setServerAi] = useState<ServerAiStatus | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [backendAvailable, setBackendAvailable] = useState<boolean | null>(null);
+  const [localMode, setLocalMode] = useState(false);
   const [learningPrefs, setLearningPrefs] = useState<LearningPrefs>(DEFAULT_PREFS);
   const [hydrated, setHydrated] = useState(false);
 
@@ -174,6 +185,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /** 登录成功后加载该用户的数据：本地缓存 + 服务端数据库 */
   const applyUser = useCallback(async (user: User) => {
     setCurrentUser(user);
+    setLocalMode(false);
     setApiConfig(loadApiConfig(user.id));
     setLearningPrefs(loadLearningPrefs(user.id));
     const local = loadDocs(user.id) ?? [];
@@ -193,10 +205,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const clearUser = useCallback(() => {
     setCurrentUser(null);
+    setLocalMode(false);
     setApiConfig(null);
     setDocs([createDemoDoc()]);
     setStoredActiveId(null);
     setHydrated(false);
+  }, []);
+
+  /** 后端不可用时（纯静态托管）跳过登录，直接用本地 localStorage */
+  const enterLocalMode = useCallback(() => {
+    const guest: User = {
+      id: LOCAL_USER_ID,
+      email: 'local@device',
+      username: '本地用户',
+      avatar: null,
+      hasPassword: false,
+      hasPasskey: false,
+      createdAt: Date.now(),
+    };
+    void (async () => {
+      setLocalMode(true);
+      setCurrentUser(guest);
+      setApiConfig(loadApiConfig(guest.id));
+      setLearningPrefs(loadLearningPrefs(guest.id));
+      const local = loadDocs(guest.id) ?? [];
+      const next = local.length > 0 ? local : [createDemoDoc()];
+      setDocs(next.map(withAutoMeta));
+      setStoredActiveId(loadActiveDocId(guest.id) ?? next[0]?.id ?? null);
+      setHydrated(true);
+    })();
+  }, []);
+
+  // 探测后端是否可用：纯静态托管（GitHub Pages）时 /api/health 返回 404/405
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch(resolveApiUrl('/api/health'), {
+          headers: { Accept: 'application/json' },
+        });
+        if (!alive) return;
+        setBackendAvailable(res.ok);
+      } catch {
+        if (alive) setBackendAvailable(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // 启动时恢复会话
@@ -226,16 +282,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveActiveDocId(currentUser.id, activeDocId);
   }, [docs, activeDocId, currentUser]);
 
-  // 防抖写回服务端数据库；后端不可用时仍保留 localStorage 兜底
+  // 防抖写回服务端数据库；本地模式 / 后端不可用时只保留 localStorage
   useEffect(() => {
-    if (!currentUser || !hydrated) {
+    if (!currentUser || !hydrated || localMode) {
       return;
     }
     const timer = window.setTimeout(() => {
       void pushSnapshot(docs, activeDocId);
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [docs, activeDocId, currentUser, hydrated]);
+  }, [docs, activeDocId, currentUser, hydrated, localMode]);
 
   const login = useCallback(
     async (identifier: string, password: string) => {
@@ -510,6 +566,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       aiReady,
       currentUser,
       authLoading,
+      backendAvailable,
+      enterLocalMode,
+      localMode,
       learningPrefs,
       updateLearningPrefs,
       refreshServerAi,
@@ -544,6 +603,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       aiReady,
       currentUser,
       authLoading,
+      backendAvailable,
+      enterLocalMode,
+      localMode,
       learningPrefs,
       updateLearningPrefs,
       refreshServerAi,
