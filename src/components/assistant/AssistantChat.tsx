@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowUp, FileText, Image as ImageIcon, Plus, X } from 'lucide-react';
 import type { KnowledgeDoc } from '../../lib/types';
 import { validateApiConfig } from '../../lib/llm';
+import { STATIC_DEPLOY } from '../../lib/auth';
 import { detectFileKind, extractFileText, FILE_ACCEPT } from '../../lib/fileText';
 import { useApp } from '../../state/AppStore';
 import {
@@ -491,7 +492,13 @@ export function AssistantChat({
         if (!acc) {
           setMessages(next);
         }
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(
+          STATIC_DEPLOY && !acc
+            ? '静态体验版没有连接模型服务。可以在本地运行后端并配置 API Key，或者直接让我做总结、出题、安排复习。'
+            : cause instanceof Error
+              ? cause.message
+              : String(cause),
+        );
       }
     } finally {
       setLoading(false);

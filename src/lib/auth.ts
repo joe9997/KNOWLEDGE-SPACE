@@ -5,8 +5,22 @@ import {
   startRegistration,
 } from '@simplewebauthn/browser';
 import type { User } from './types';
+import {
+  isLocalToken,
+  localChangePassword,
+  localLogin,
+  localMe,
+  localRegister,
+  localUpdateProfile,
+} from './localAuth';
 
 const TOKEN_KEY = 'huiyuan.auth.token.v1';
+
+/**
+ * 静态部署（GitHub Pages / 单文件 HTML）没有后端：
+ * 账号改为浏览器本地实现，避免 POST /api/auth/* 落到静态服务器返回 405。
+ */
+export const STATIC_DEPLOY = import.meta.env.VITE_STATIC_HOST === '1';
 
 /**
  * 生产部署时（GitHub Pages 托前端、Vercel 托后端），
@@ -49,7 +63,8 @@ export class ApiError extends Error {
 export function authHeaders(extra?: HeadersInit): Headers {
   const headers = new Headers(extra);
   const token = getToken();
-  if (token) {
+  // 本地账号的 token 只在前端使用，不发给后端
+  if (token && !isLocalToken(token)) {
     headers.set('Authorization', `Bearer ${token}`);
   }
   return headers;
@@ -62,7 +77,7 @@ export function authHeaders(extra?: HeadersInit): Headers {
  */
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const response = await fetch(resolveApiUrl(path), { ...init, headers: authHeaders(init.headers) });
-  if (response.status === 401 && getToken()) {
+  if (response.status === 401 && getToken() && !isLocalToken(getToken())) {
     // token 已失效：清掉，避免每次请求都带着一个死 token 反复 401
     clearToken();
   }
@@ -101,24 +116,32 @@ export async function apiRegister(input: {
   username: string;
   password: string;
 }): Promise<AuthResult> {
-  const result = await request<AuthResult>('/api/auth/register', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
+  const result = STATIC_DEPLOY
+    ? await localRegister(input)
+    : await request<AuthResult>('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
   setToken(result.token);
   return result;
 }
 
 export async function apiLogin(identifier: string, password: string): Promise<AuthResult> {
-  const result = await request<AuthResult>('/api/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ identifier, password }),
-  });
+  const result = STATIC_DEPLOY
+    ? await localLogin(identifier, password)
+    : await request<AuthResult>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ identifier, password }),
+      });
   setToken(result.token);
   return result;
 }
 
 export async function apiLogout(): Promise<void> {
+  if (STATIC_DEPLOY) {
+    clearToken();
+    return;
+  }
   try {
     await request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' });
   } finally {
@@ -130,6 +153,9 @@ export async function apiMe(): Promise<User | null> {
   const token = getToken();
   if (!token) {
     return null;
+  }
+  if (STATIC_DEPLOY) {
+    return localMe(token);
   }
   try {
     const result = await request<{ user: User }>('/api/auth/me');
@@ -146,6 +172,9 @@ export async function apiUpdateProfile(input: {
   email?: string;
   avatar?: string | null;
 }): Promise<User> {
+  if (STATIC_DEPLOY) {
+    return localUpdateProfile(getToken(), input);
+  }
   const result = await request<{ user: User }>('/api/auth/profile', {
     method: 'PUT',
     body: JSON.stringify(input),
@@ -157,6 +186,10 @@ export async function apiChangePassword(
   currentPassword: string,
   newPassword: string,
 ): Promise<void> {
+  if (STATIC_DEPLOY) {
+    await localChangePassword(getToken(), currentPassword, newPassword);
+    return;
+  }
   await request<{ ok: boolean }>('/api/auth/password', {
     method: 'POST',
     body: JSON.stringify({ currentPassword, newPassword }),
@@ -165,7 +198,8 @@ export async function apiChangePassword(
 
 // ---------- Passkey ----------
 export function passkeySupported(): boolean {
-  return browserSupportsWebAuthn();
+  // 本地账号没有服务端 challenge，静态部署下不提供 Passkey
+  return STATIC_DEPLOY ? false : browserSupportsWebAuthn();
 }
 
 export async function passkeyPlatformAvailable(): Promise<boolean> {

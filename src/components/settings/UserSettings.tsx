@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Fingerprint, Loader2, Save, Trash2, Upload } from 'lucide-react';
 import { useApp } from '../../state/AppStore';
-import { passkeySupported, registerPasskey, removePasskey } from '../../lib/auth';
+import { passkeySupported, registerPasskey, removePasskey, STATIC_DEPLOY } from '../../lib/auth';
 
 function compressAvatar(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -248,7 +248,9 @@ export function UserSettings() {
             )}
           </div>
         ) : (
-          <p className="settings-hint">当前浏览器不支持 WebAuthn / Passkey。</p>
+          <p className="settings-hint">
+            {STATIC_DEPLOY ? '静态体验版不支持 Passkey。' : '当前浏览器不支持 WebAuthn / Passkey。'}
+          </p>
         )}
       </section>
     </div>

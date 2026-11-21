@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import { Fingerprint, Loader2, Lock, Mail, UserRound } from 'lucide-react';
 import { OrbitMark } from '../OrbitMark';
 import { useApp } from '../../state/AppStore';
-import { passkeySupported } from '../../lib/auth';
+import { passkeySupported, STATIC_DEPLOY } from '../../lib/auth';
 
 type Mode = 'login' | 'register';
 
@@ -203,7 +203,11 @@ export function AuthModal() {
           不登录，用本地模式
         </button>
 
-        <p className="auth-footnote">登录后即可使用，数据保存在你的账号下。</p>
+        <p className="auth-footnote">
+          {STATIC_DEPLOY
+            ? '静态体验版：账号与数据仅保存在当前浏览器，换设备不会同步。'
+            : '登录后即可使用，数据保存在你的账号下。'}
+        </p>
       </div>
     </div>
   );

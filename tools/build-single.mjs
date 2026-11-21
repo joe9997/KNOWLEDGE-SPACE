@@ -18,6 +18,9 @@ const root = process.cwd();
 const outDir = path.join(root, 'dist-single');
 const finalName = 'KNOWLEDGE-SPACE.html';
 
+// 单文件 HTML 双击打开时同样没有后端，账号走浏览器本地实现
+process.env.VITE_STATIC_HOST = '1';
+
 await build({
   configFile: false,
   root,
