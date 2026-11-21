@@ -30,7 +30,10 @@ jobs:
         run: npm ci
 
       # vite.config.ts 的 base 是 './'，子路径部署无需额外注入
+      # VITE_STATIC_HOST=1：GitHub Pages 没有后端，账号走浏览器本地实现，避免 /api/auth 405
       - name: Build
+        env:
+          VITE_STATIC_HOST: '1'
         run: npm run build
 
       - name: Configure Pages
