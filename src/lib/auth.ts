@@ -8,6 +8,20 @@ import type { User } from './types';
 
 const TOKEN_KEY = 'huiyuan.auth.token.v1';
 
+/**
+ * 生产部署时（GitHub Pages 托前端、Vercel 托后端），
+ * 前端需要直连绝对 URL；开发时 vite proxy 把 /api 转发到本地后端，用相对路径即可。
+ * .env.production 里配置 VITE_API_BASE_URL=https://your-api.vercel.app，
+ * 不配置则退回相对路径（dev 或前后端同端口）。
+ */
+export function resolveApiUrl(path: string): string {
+  const base = import.meta.env.VITE_API_BASE_URL;
+  if (!base) return path;
+  // base 去掉末尾斜杠，path 确保以 /api 开头
+  const normalizedBase = base.replace(/\/+$/, '');
+  return path.startsWith('/') ? `${normalizedBase}${path}` : `${normalizedBase}/${path}`;
+}
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -47,7 +61,7 @@ export function authHeaders(extra?: HeadersInit): Headers {
  * 后端加上 requireAuth 之后全部 401，云同步和服务端 AI 静默失效。
  */
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const response = await fetch(path, { ...init, headers: authHeaders(init.headers) });
+  const response = await fetch(resolveApiUrl(path), { ...init, headers: authHeaders(init.headers) });
   if (response.status === 401 && getToken()) {
     // token 已失效：清掉，避免每次请求都带着一个死 token 反复 401
     clearToken();
