@@ -2280,6 +2280,50 @@ ul {
   line-height: 1.85;
 }
 
+/* 讲解为空时的兜底样式 */
+.source-explanation--empty {
+  color: var(--text-soft);
+  font-style: italic;
+}
+
+/* 原文与批注默认折叠，面板优先展示知识点详解 */
+.source-origin {
+  margin-top: 6px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 10px;
+}
+
+.source-origin__summary {
+  cursor: pointer;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  list-style: none;
+  user-select: none;
+}
+
+.source-origin__summary::-webkit-details-marker {
+  display: none;
+}
+
+.source-origin__summary::before {
+  content: '▸ ';
+  font-size: 9px;
+}
+
+.source-origin[open] .source-origin__summary::before {
+  content: '▾ ';
+}
+
+.source-origin__summary:hover {
+  color: var(--text-soft);
+}
+
+.source-origin__inner {
+  margin-top: 12px;
+}
+
 .source-no-origin {
   display: flex;
   gap: 8px;

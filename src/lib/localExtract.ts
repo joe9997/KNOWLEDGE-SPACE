@@ -114,17 +114,29 @@ function stripHeadingMarks(line: string): string {
     .trim();
 }
 
-/** 按词边界截断，英文不会切断单词；中文按字数截断 */
+/** 按词边界截断，英文不会切断单词；中文优先在分句边界收尾并去掉裸露虚词 */
+const DANGLING_TAIL = /(的|了|和|与|或|在|把|被|对|从|向|为|以|就|都|也|还|只|并且|而且|以及|及|等|如|是)$/;
+
 function cutAtBoundary(text: string, max: number): string {
   if (text.length <= max) {
     return text;
   }
   const clipped = text.slice(0, max);
-  if (/[A-Za-z]/.test(clipped)) {
+  if (/[A-Za-z]/.test(clipped) && !/[\u4e00-\u9fa5]/.test(clipped)) {
     const space = clipped.lastIndexOf(' ');
     return (space > max * 0.45 ? clipped.slice(0, space) : clipped).trim();
   }
-  return clipped.trim();
+  // 中文：尽量切在标点/空格处，避免出现「…程序中的控」这种半截词
+  const boundaries = ['，', '、', '：', '；', ',', ' ', '（', '(', '—', '–'];
+  let cut = -1;
+  for (const mark of boundaries) {
+    cut = Math.max(cut, clipped.lastIndexOf(mark));
+  }
+  let out = cut > max * 0.45 ? clipped.slice(0, cut) : clipped;
+  for (let round = 0; round < 4 && DANGLING_TAIL.test(out); round += 1) {
+    out = out.replace(DANGLING_TAIL, '');
+  }
+  return out.trim();
 }
 
 function firstSentence(section: string): string | null {
@@ -144,6 +156,7 @@ function firstSentence(section: string): string | null {
 
 function shortTitle(text: string, max = 18): string {
   const clean = text
+    .replace(/[（(]\s*p\.?\s*\d+(\s*[-–~]\s*\d+)?\s*[)）]/gi, ' ')
     .replace(/^[\s#>*\-+0-9.、]+/, '')
     .replace(/^(this paper|in this work|in this paper|we|our|the)\s+/i, '')
     .replace(
@@ -223,16 +236,48 @@ function titleFromSentence(sentence: string): string {
   return candidate;
 }
 
-/** 旧数据里可能存了 "However" / "In this section" 这类空标题 */
+/** 旧数据里可能存了 "However" / "In this section" 这类空标题，或数值/参数碎片 */
 export function isWeakNodeTitle(title: string): boolean {
   const trimmed = title.trim();
-  return trimmed.length < 3 || GENERIC_TITLE.test(trimmed);
+  if (trimmed.length < 3 || GENERIC_TITLE.test(trimmed)) {
+    return true;
+  }
+  const cjk = (trimmed.match(/[\u4e00-\u9fa5]/g) ?? []).length;
+  // 参数 / 常量碎片："E+306D 一个带有D 多余"、"2147483647 - 231"
+  if (/\d{4,}/.test(trimmed) || /[A-Za-z][-+]?\d{2,}/.test(trimmed)) {
+    const hasCue = /(是指|指的是|定义为|表示|包括|分为|用于|注意|必须|转换|类型|常量|变量)/.test(
+      trimmed,
+    );
+    if (!hasCue && cjk <= 10) {
+      return true;
+    }
+  }
+  // 几乎全是符号，或只有一两个字
+  if (cjk <= 2 && trimmed.length <= 6) {
+    return true;
+  }
+  return false;
 }
 
 /** 用原文句子重新推导一个节点标题（不改动引用） */
 export function deriveNodeTitle(quote: string, fallback = '未命名节点'): string {
-  const title = titleFromSentence(quote);
-  return title && title !== '未命名节点' ? title : fallback;
+  const direct = titleFromSentence(quote);
+  if (direct && direct !== '未命名节点' && !isWeakNodeTitle(direct)) {
+    return direct;
+  }
+  // 首个分句仍是碎片时，往后找一个「像知识点」的分句
+  const clauses = quote
+    .split(/[，,;；。！？!?\n]/)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+  const better = clauses.find(
+    (clause) =>
+      clause.length >= 6 &&
+      !/\d{4,}/.test(clause) &&
+      !/[A-Za-z][-+]?\d{2,}/.test(clause) &&
+      !isWeakNodeTitle(shortTitle(clause, 20)),
+  );
+  return better ? shortTitle(better, 22) : direct || fallback;
 }
 
 function questionFor(title: string, quote?: string): string {
@@ -284,45 +329,61 @@ function questionFor(title: string, quote?: string): string {
  * 如果 quote 太短或空，就退化成标题改写。
  */
 function synthesizeLocalExplanation(title: string, quote: string): string {
+  const t = stripDiscourse(title).trim();
   const q = quote.replace(/\s+/g, ' ').trim();
-  const t = title.trim();
-
-  // 1. 概括句
-  let summary: string;
-  if (t && q) {
-    summary = `**${t}** 的要点：`;
-  } else if (q) {
-    summary = '这段内容说的是：';
-  } else {
-    summary = `**${t || '该概念'}**。`;
-    return summary;
+  if (!q) {
+    return `**${t || '该概念'}** 暂无讲解内容，可以回到原文补充。`;
   }
 
-  // 2. 从 quote 里挑核心词加粗：定义类 → 把定义的主语加粗；技术类 → 把代码/关键术语加粗
-  let body = '';
-  if (q.length >= 10) {
-    // 找 1-2 个最值得加粗的部分
-    const parts = splitChineseSentence(q);
-    const boldIndexes = pickBoldIndices(parts, q);
-    const bolded = parts.map((part, i) =>
-      boldIndexes.includes(i) && part.length >= 2 ? `**${part}**` : part,
-    ).join('');
-    body = bolded.length < q.length ? bolded : q;
-  } else {
-    body = q;
+  const rawParts = splitChineseSentence(q);
+  const boldTargets = new Set(pickBoldIndices(rawParts, q).map((i) => rawParts[i]));
+  const parts = rawParts.map((p) => p.trim()).filter((p) => p.length >= 2);
+  const firstClause = parts[0] ?? q;
+  const leadName = t || firstClause;
+
+  // ① 一句话定义
+  const lead = `**${leadName}**：${firstClause}${/[。！？.!?]$/.test(firstClause) ? '' : '。'}`;
+
+  // ② 展开要点：其余分句逐条列出，关键术语加粗
+  const seen = new Set([firstClause]);
+  const bullets: string[] = [];
+  for (const part of parts.slice(1)) {
+    if (bullets.length >= 4) break;
+    if (seen.has(part)) continue;
+    seen.add(part);
+    bullets.push(`- ${boldTargets.has(part) ? `**${part}**` : part}`);
   }
 
-  // 3. 简短用途/注意点
-  const suffix =
-    /必须|注意|不能|会丢失|精度/.test(q) && q.length > 20
-      ? '\n⚠️ 这里涉及**关键约束**或**潜在风险**，回顾时要特别留意。'
-      : /例|示例|例子/i.test(q)
-        ? '\n💡 记住这个例子可以帮你记住概念本身。'
-        : q.length > 40
-          ? '\n🔍 回顾时可以尝试用自己的话复述一遍。'
-          : '';
+  // ③ 复习提示：按内容类型给出针对性提醒
+  const tips: string[] = [];
+  const scope = `${t} ${q}`;
+  if (/转换/.test(scope)) {
+    tips.push('💡 抓两头：**源类型**是什么、**目标类型**是什么，转换时是否丢失精度。');
+  }
+  if (/必须|注意|不能|不允许|丢失|精度|范围/.test(q)) {
+    tips.push('⚠️ 这句话里有**硬性约束**，考试和写代码时最容易踩坑。');
+  }
+  if (/包括|分为|共有|组成/.test(q)) {
+    tips.push('🧩 这是一个**分类/枚举**型知识点，回忆时先列全再逐个解释。');
+  }
+  if (/例|示例|例如/.test(q)) {
+    tips.push('💡 结合例子记忆，比背定义更牢。');
+  }
+  if (tips.length === 0) {
+    tips.push('🔍 回顾时试着用自己的话复述一遍，能说清就是真会了。');
+  }
 
-  return `${summary}\n${body}${suffix}`;
+  const blocks = [lead];
+  if (bullets.length > 0) {
+    blocks.push(bullets.join('\n'));
+  }
+  blocks.push(tips.join('\n'));
+  return blocks.join('\n\n');
+}
+
+/** 供旧数据迁移使用：用本地规则重建某个节点的讲解 */
+export function rebuildLocalExplanation(title: string, quote: string): string {
+  return synthesizeLocalExplanation(title, quote);
 }
 
 /** 把中文句子按标点拆成片段，英文按空格 + 标点拆 */
@@ -522,7 +583,9 @@ function parseBlocks(text: string): Block[] {
         continue;
       }
       const prev = merged[merged.length - 1];
-      const continues = /^[a-z(“"']/.test(line) && !/[.!?。！？:;]$/.test(prev);
+      // 只有「上一行很长且明显没说完」才把下一行接回去；PPT 的短词条不能被粘成一坨
+      const continues =
+        /^[a-z(“"']/.test(line) && !/[.!?。！？:;]$/.test(prev) && prev.length >= 60;
       if (continues) {
         merged[merged.length - 1] = `${prev} ${line}`;
       } else {
@@ -626,8 +689,8 @@ function looksLikeNoise(sentence: string): boolean {
   ) {
     return true;
   }
-  // PDF 断行留下的续句通常以小写开头
-  if (/^[a-z]/.test(sentence)) {
+  // PDF 断行留下的续句通常以小写开头（但含中文的行是 PPT 词条，如 "char 常量是用单引号括起来"）
+  if (/^[a-z]/.test(sentence) && !/[\u4e00-\u9fa5]/.test(sentence)) {
     return true;
   }
   if (/^[\d\s.,;:+\-–—%/()]+$/.test(sentence)) {
@@ -639,6 +702,37 @@ function looksLikeNoise(sentence: string): boolean {
     if (letters / sentence.length < 0.55) {
       return true;
     }
+  }
+
+  // ---- PPT / 讲义碎片过滤 ----
+  const cjkCount = (sentence.match(/[\u4e00-\u9fa5]/g) ?? []).length;
+  const symbolCount = (sentence.match(/[~+\-=<>*/%^|\\[\]]/g) ?? []).length;
+  // 数值范围、十六进制、表达式碎片："~ 2147483647 - 231 --"、"E+306D 一个带有D 多余"
+  if (cjkCount < 6 && symbolCount >= 2) {
+    return true;
+  }
+  // 页码与章节编号："2.1.3 不同类型数据之间转换(p29-30)"、"(p29-30)"
+  if (/\(\s*p\.?\s*\d+(\s*[-–~]\s*\d+)?\s*\)\s*$/i.test(sentence) && cjkCount < 10) {
+    return true;
+  }
+  if (/^(p\.?\s*\d+|第\s*\d+\s*页)/i.test(sentence)) {
+    return true;
+  }
+  // 孤立符号或一两个字的残句："、"，"如"，"例"
+  if (cjkCount > 0 && cjkCount <= 2 && sentence.trim().length <= 4) {
+    return true;
+  }
+  // 纯数字 / 十六进制 / 浮点字面量
+  if (/^[-+]?(0x[0-9a-fA-F]+|\d+(\.\d+)?([eE][-+]?\d+)?[dDfFlL]?)$/.test(sentence.trim())) {
+    return true;
+  }
+  // 参数 / 常量碎片："E+306D 一个带有D 多余"、"最大值 2147483647"
+  if (
+    /[A-Za-z][-+]?\d{2,}|\d{4,}/.test(sentence) &&
+    !/(是指|指的是|定义为|表示|包括|分为|用于|注意|必须)/.test(sentence) &&
+    cjkCount <= 10
+  ) {
+    return true;
   }
   return false;
 }
@@ -675,6 +769,14 @@ function scoreSentence(sentence: string, order: number, total: number, section: 
   score += (1 - order / Math.max(1, total)) * 1.2;
   if (/^(this paper|in this work|we propose|we present|本文|我们提出)/i.test(sentence)) {
     score += 1.2;
+  }
+  // 中文定义 / 分类 / 规则陈述，最像知识点
+  if (/(是指|指的是|定义为|表示|包括|分为|共有|由.{0,8}组成|用于|作用|特点|区别|规则|注意|必须|不能)/.test(sentence)) {
+    score += 1.2;
+  }
+  // 代码示例行（大量括号/分号/等号）降权，避免把代码当知识点
+  if ((sentence.match(/[=;{}()]/g) ?? []).length >= 4) {
+    score -= 1.6;
   }
   return score;
 }

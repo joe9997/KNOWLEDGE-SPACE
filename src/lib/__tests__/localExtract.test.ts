@@ -190,4 +190,34 @@ ascribe /əˈskraɪb/ v. 归因于`;
     );
     expect(nodes[0].title).not.toBe(nodes[1].title);
   });
+
+  it('PPT 里的数值/代码碎片不会被抽成知识点', () => {
+    const PPT = `2.1.3 不同类型数据之间转换(p29-30)
+包括 - [~2147483647 -231 ~
+、
+E+306D 一个带有D 多余
+char 常量是用单引号括起来
+char型变量可以用Unicode码表中
+char型变量数据与数值类数据之间的转换`;
+    const nodes = toKnowledgeNodes(
+      extractLocally(PPT).map((n) => ({ ...n, level: 0 })),
+      PPT,
+      1000,
+    );
+    const titles = nodes.map((n) => n.title);
+    expect(titles.some((t) => /2147483647|E\+306D|^、$/.test(t))).toBe(false);
+    // 含中文的 PPT 词条即使以小写英文开头也要保留
+    expect(titles.some((t) => t.includes('char'))).toBe(true);
+  });
+
+  it('本地讲解包含定义、要点与复习提示', () => {
+    const nodes = toKnowledgeNodes(
+      [{ title: '强制类型转换', quote: '必须强制转换后赋值，否则会丢失精度。', question: '？', level: 0 }],
+      '必须强制转换后赋值，否则会丢失精度。',
+      1000,
+    );
+    const explanation = nodes[0].explanation ?? '';
+    expect(explanation).toContain('**强制类型转换**');
+    expect(explanation).toContain('⚠️');
+  });
 });
