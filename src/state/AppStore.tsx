@@ -44,7 +44,7 @@ import type {
 } from '../lib/types';
 import { validateApiConfig } from '../lib/llm';
 import { normalizeAnnotationRange, overlapsAnnotation } from '../lib/annotations';
-import { buildDocMeta, deriveNodeTitle, isWeakNodeTitle } from '../lib/localExtract';
+import { buildDocMeta, deriveNodeTitle, isWeakNodeTitle, rebuildLocalExplanation } from '../lib/localExtract';
 import { fetchSnapshot, pushSnapshot } from '../lib/persistence';
 import { getServerAiStatus } from '../lib/serverAi';
 import type { ServerAiStatus } from '../lib/serverAi';
@@ -111,12 +111,18 @@ const AppContext = createContext<AppContextValue | null>(null);
 function withAutoMeta(doc: KnowledgeDoc): KnowledgeDoc {
   const meta = doc.text && (!doc.subtitle || !doc.summary) ? buildDocMeta(doc.text) : null;
   const used = new Set<string>();
-  let titlesChanged = false;
+  let changed = false;
   const nodes = doc.nodes.map((node) => {
     let title = node.title;
+    let explanation = node.explanation;
     if (node.quote && isWeakNodeTitle(title)) {
       title = deriveNodeTitle(node.quote, title);
-      titlesChanged = true;
+      changed = true;
+      // 标题是弱标题，说明讲解也可能是旧算法生成的，一并重建
+      explanation = rebuildLocalExplanation(title, node.quote);
+    } else if (!explanation && node.quote) {
+      explanation = rebuildLocalExplanation(title, node.quote);
+      changed = true;
     }
     let unique = title;
     let suffix = 2;
@@ -125,10 +131,13 @@ function withAutoMeta(doc: KnowledgeDoc): KnowledgeDoc {
       suffix += 1;
     }
     used.add(unique);
-    return unique === node.title ? node : { ...node, title: unique };
+    if (unique === node.title && explanation === node.explanation) {
+      return node;
+    }
+    return { ...node, title: unique, explanation };
   });
 
-  if (!meta && !titlesChanged) {
+  if (!meta && !changed) {
     return doc;
   }
   return {

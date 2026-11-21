@@ -286,7 +286,7 @@ export function SourcePanel({ doc, node, onClose, onQuiz }: SourcePanelProps) {
     <aside className="source-panel glass-panel" aria-label="原文溯源面板">
       <header className="source-panel__head">
         <div>
-          <p className="source-panel__eyebrow">原文溯源</p>
+          <p className="source-panel__eyebrow">知识点</p>
           <h3 className="source-panel__title">{node.title}</h3>
           <div className="source-panel__meta">
             <span className="chip" data-status={status}>
@@ -302,69 +302,75 @@ export function SourcePanel({ doc, node, onClose, onQuiz }: SourcePanelProps) {
       </header>
 
       <div className="source-panel__body" ref={scrollRef}>
-        {node.explanation && (
-          <>
-            <p className="source-panel__block-label">AI 讲解</p>
-            <div className="source-explanation">{renderInline(node.explanation)}</div>
-          </>
-        )}
-
-        <p className="source-panel__block-label">原文引用</p>
-        {matched ? (
-          <blockquote className="source-quote">{node.quote}</blockquote>
+        <p className="source-panel__block-label">知识点详解</p>
+        {node.explanation ? (
+          <div className="source-explanation">{renderInline(node.explanation)}</div>
         ) : (
-          <div className="source-no-origin">
-            <AlertTriangle size={14} aria-hidden="true" />
-            <span>
-              无出处 · 模型没有给出可逐字匹配的原句。回源不会伪造引用，因此这个节点不高亮，并默认置灰。
-            </span>
+          <div className="source-explanation source-explanation--empty">
+            {node.quote ? renderInline(node.quote) : '这个知识点还没有生成详细讲解。'}
           </div>
         )}
 
-        <p className="source-panel__block-label">
-          完整材料
-          <span className="source-panel__hint">选中文字即可添加批注</span>
-        </p>
-        <div className="source-text" ref={textRef} onMouseUp={handleMouseUp}>
-          {segments.map((segment) => {
-            const content = segment.highlighted ? (
-              <mark
-                className="source-mark"
-                ref={segment.start === node.quoteStart ? markRef : undefined}
-              >
-                {segment.text}
-              </mark>
+        <details className="source-origin">
+          <summary className="source-origin__summary">查看原文与批注</summary>
+          <div className="source-origin__inner">
+            {matched ? (
+              <blockquote className="source-quote">{node.quote}</blockquote>
             ) : (
-              segment.text
-            );
-            const key = `${segment.start}-${segment.end}`;
-            if (!segment.annotation) {
-              return <Fragment key={key}>{content}</Fragment>;
-            }
-            const annotation = segment.annotation;
-            return (
-              <span
-                key={key}
-                className="source-annotation"
-                data-annotation-id={annotation.id}
-                tabIndex={0}
-                aria-label={`批注：${annotation.note}`}
-                onMouseEnter={(event) => showAnnotationCard(event.currentTarget, annotation)}
-                onMouseLeave={scheduleHideCard}
-                onFocus={(event) => showAnnotationCard(event.currentTarget, annotation)}
-                onBlur={(event) => {
-                  // 焦点移到卡片里的删除按钮时不要收起
-                  if (event.relatedTarget instanceof Node && cardRef.current?.contains(event.relatedTarget)) {
-                    return;
-                  }
-                  scheduleHideCard();
-                }}
-              >
-                {content}
-              </span>
-            );
-          })}
-        </div>
+              <div className="source-no-origin">
+                <AlertTriangle size={14} aria-hidden="true" />
+                <span>
+                  无出处 · 模型没有给出可逐字匹配的原句。回源不会伪造引用，因此这个节点不高亮，并默认置灰。
+                </span>
+              </div>
+            )}
+
+            <p className="source-panel__block-label">
+              完整材料
+              <span className="source-panel__hint">选中文字即可添加批注</span>
+            </p>
+            <div className="source-text" ref={textRef} onMouseUp={handleMouseUp}>
+              {segments.map((segment) => {
+                const content = segment.highlighted ? (
+                  <mark
+                    className="source-mark"
+                    ref={segment.start === node.quoteStart ? markRef : undefined}
+                  >
+                    {segment.text}
+                  </mark>
+                ) : (
+                  segment.text
+                );
+                const key = `${segment.start}-${segment.end}`;
+                if (!segment.annotation) {
+                  return <Fragment key={key}>{content}</Fragment>;
+                }
+                const annotation = segment.annotation;
+                return (
+                  <span
+                    key={key}
+                    className="source-annotation"
+                    data-annotation-id={annotation.id}
+                    tabIndex={0}
+                    aria-label={`批注：${annotation.note}`}
+                    onMouseEnter={(event) => showAnnotationCard(event.currentTarget, annotation)}
+                    onMouseLeave={scheduleHideCard}
+                    onFocus={(event) => showAnnotationCard(event.currentTarget, annotation)}
+                    onBlur={(event) => {
+                      // 焦点移到卡片里的删除按钮时不要收起
+                      if (event.relatedTarget instanceof Node && cardRef.current?.contains(event.relatedTarget)) {
+                        return;
+                      }
+                      scheduleHideCard();
+                    }}
+                  >
+                    {content}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        </details>
       </div>
 
       <div className="source-panel__actions">
