@@ -1,4 +1,4 @@
-import { getToken } from './auth';
+import { getToken, resolveApiUrl } from './auth';
 import { isDue } from './review';
 import type { ApiConfig, KnowledgeDoc } from './types';
 
@@ -141,7 +141,7 @@ export async function requestAssistantReply(
 ): Promise<string> {
   let response: Response;
   try {
-    response = await fetch('/api/ai/chat', {
+    response = await fetch(resolveApiUrl('/api/ai/chat'), {
       method: 'POST',
       headers: requestHeaders(),
       body: requestBody(messages, context, config),
@@ -176,7 +176,7 @@ export async function requestAssistantReplyStream(
 ): Promise<string> {
   let response: Response;
   try {
-    response = await fetch('/api/ai/chat/stream', {
+    response = await fetch(resolveApiUrl('/api/ai/chat/stream'), {
       method: 'POST',
       headers: requestHeaders(),
       body: requestBody(messages, context, config),

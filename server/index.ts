@@ -466,7 +466,10 @@ app.post('/api/ai/elaborate', requireAuth, aiLimiter, async (req: AuthedRequest,
     res.status(503).json({ error: NO_AI_MESSAGE });
     return;
   }
-  const rawNodes = Array.isArray(req.body?.nodes) ? req.body.nodes : [];
+  type RawNode = { id?: unknown; title?: unknown; quote?: unknown };
+  const rawNodes: RawNode[] = Array.isArray(req.body?.nodes)
+    ? (req.body.nodes as RawNode[])
+    : [];
   const text = typeof req.body?.text === 'string' ? req.body.text : '';
   if (rawNodes.length === 0) {
     res.status(400).json({ error: '请求缺少 nodes 字段。' });
@@ -475,14 +478,13 @@ app.post('/api/ai/elaborate', requireAuth, aiLimiter, async (req: AuthedRequest,
   // 限规模：每个节点 250 字上限，总共 6000 字上限，避免 prompt 过大
   const nodes = rawNodes
     .slice(0, 16)
-    .map((item) => {
-      const node = item as { id?: unknown; title?: unknown; quote?: unknown };
-      const id = typeof node.id === 'string' ? node.id : '';
-      const title = typeof node.title === 'string' ? node.title.trim() : '';
-      const quote = typeof node.quote === 'string' ? node.quote.trim() : '';
+    .map((item: RawNode) => {
+      const id = typeof item.id === 'string' ? item.id : '';
+      const title = typeof item.title === 'string' ? item.title.trim() : '';
+      const quote = typeof item.quote === 'string' ? item.quote.trim() : '';
       return { id, title, quote };
     })
-    .filter((node) => node.id && node.title);
+    .filter((node: { id: string; title: string; quote: string }) => node.id && node.title);
 
   const textHint = text
     ? `\n\n全文参考（截取前 ${Math.min(2000, text.length)} 字）：\n${text.replace(/\s+/g, ' ').trim().slice(0, 2000)}`
