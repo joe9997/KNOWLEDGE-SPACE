@@ -13,7 +13,7 @@ export function NewSessionPage({ onCreated, onOpenApi }: NewSessionPageProps) {
           <p className="eyebrow">NEW SESSION</p>
           <h1>开启新的探索</h1>
           <p>
-            粘贴一段讲义，或拖入 .txt / .md 文件。回源会保留完整原文，并为每个节点绑定可逐字核对的原句。
+            粘贴一段讲义，或拖入 PDF / Word / PPT / 文本文件。回源会保留完整原文，并为每个节点绑定可逐字核对的原句。
             未配置 API 时可使用本地规则整理，不调用任何 AI。
           </p>
         </header>

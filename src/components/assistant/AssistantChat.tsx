@@ -6,16 +6,89 @@ import { validateApiConfig } from '../../lib/llm';
 import { detectFileKind, extractFileText, FILE_ACCEPT } from '../../lib/fileText';
 import { useApp } from '../../state/AppStore';
 import {
-  buildDocContext,
+  buildAutoStudyBrief,
+  buildHubStudyBrief,
+  buildKnowledgeContext,
+  buildLocalAssistantReply,
   requestAssistantReplyStream,
   type ChatContentPart,
   type OutgoingChatMessage,
 } from '../../lib/assistant';
+type RichLineKind = 'title' | 'meta' | 'section' | 'item' | 'detail' | 'answer' | 'body';
+
+/** 按行判断内容类型，让总结 / 出题这些长文本有字号与字体的层次 */
+function classifyLine(line: string, index: number): RichLineKind {
+  const text = line.trim();
+  if (index === 0) {
+    return 'title';
+  }
+  if (/^(当前知识库|已连接最近会话|本地(总结|总览|检索|出题|学习计划))/.test(text)) {
+    return 'title';
+  }
+  if (/^(主题|摘要|规模|共\s*\d+\s*个要点|命中\s*\d+\s*条|已接入\s*\d+\s*个会话)/.test(text)) {
+    return 'meta';
+  }
+  if (/^(答案|参考答案)\s*[:：]/.test(text)) {
+    return 'answer';
+  }
+  if (/^\s{2,}\S/.test(line)) {
+    return 'detail';
+  }
+  if (/^(讲解|结构|自测|正面|背面|卡片\s*\d+)[：:]/.test(text) || /^卡片\s*\d+$/.test(text)) {
+    return 'detail';
+  }
+  if (/^\d+[.、]\s/.test(text) || /^[-·•]\s/.test(text)) {
+    return 'item';
+  }
+  if (/[:：]$/.test(text) && text.length <= 40) {
+    return 'section';
+  }
+  return 'body';
+}
+
+/** 把 **重点** 渲染成加粗，其余保持普通文本 */
+function renderInline(text: string) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>;
+    }
+    return <span key={index}>{part}</span>;
+  });
+}
+
+function RichMessage({ text }: { text: string }) {
+  return (
+    <div className="assistant-rich">
+      {text.split('\n').map((line, index) => {
+        if (!line.trim()) {
+          return <span key={index} className="assistant-rich__gap" aria-hidden="true" />;
+        }
+        const kind = classifyLine(line, index);
+        return (
+          <span key={index} className={`assistant-rich__${kind}`}>
+            {renderInline(line.trim())}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 interface AssistantChatProps {
   open: boolean;
   doc: KnowledgeDoc | null;
+  /** 全部会话：助手作为神经中枢，可以跨会话回答 */
+  docs?: KnowledgeDoc[];
   onClose: () => void;
+  /** 打开题库自测（个性化学习入口） */
+  onStartQuiz?: () => void;
+  /** 每次从侧栏进入助手都换一个值，用来开启新的助手会话 */
+  sessionToken?: number;
+  /**
+   * hub：侧栏入口，接入全部会话、无快捷标签；
+   * doc：图谱页入口，只针对当前材料，自动总结 + 出题。
+   */
+  mode?: 'hub' | 'doc';
   /** popover：右下角浮动窗；page：铺在主内容区 */
   variant?: 'popover' | 'page';
 }
@@ -173,10 +246,14 @@ async function toAttachment(file: File): Promise<Attachment> {
 export function AssistantChat({
   open,
   doc,
+  docs = [],
   onClose,
+  onStartQuiz,
+  sessionToken,
+  mode = 'hub',
   variant = 'popover',
 }: AssistantChatProps) {
-  const { apiConfig, currentUser } = useApp();
+  const { apiConfig, currentUser, aiReady } = useApp();
   const memoryStorageKey = currentUser ? memoryKey(currentUser.id) : null;
   const panelRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -196,6 +273,24 @@ export function AssistantChat({
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 侧栏入口（hub）跨所有 docs 自动总结；图谱页入口（doc）针对当前材料自动总结
+  const seededSession = useRef<number | null>(null);
+  useEffect(() => {
+    if (variant !== 'page' || !open || sessionToken === undefined) {
+      return;
+    }
+    if (seededSession.current === sessionToken) {
+      return;
+    }
+    if (mode === 'doc' && !doc) {
+      return;
+    }
+    seededSession.current = sessionToken;
+    const brief = mode === 'doc' ? buildAutoStudyBrief(doc) : buildHubStudyBrief(docs);
+    setMessages(brief ? [{ role: 'assistant', content: brief }] : []);
+    setError(null);
+  }, [sessionToken, open, variant, mode, doc, docs]);
 
   // 流式输出期间不落盘，等这一轮结束再写入最近 15 条
   useEffect(() => {
@@ -359,6 +454,21 @@ export function AssistantChat({
       { role: 'user', content: outgoing },
     ];
 
+    const userConfig = apiConfig && validateApiConfig(apiConfig).ok ? apiConfig : null;
+    const scopedDocs = mode === 'doc' ? (doc ? [doc] : []) : docs;
+
+    // 没有可用模型时，用本地已整理好的要点直接回答总结 / 出题 / 复习安排
+    if (!userConfig && !aiReady) {
+      const localReply = buildLocalAssistantReply(doc, content, scopedDocs);
+      if (localReply) {
+        setMessages([...next, { role: 'assistant', content: localReply }]);
+        setInput('');
+        setAttachments([]);
+        setError(null);
+        return;
+      }
+    }
+
     setMessages([...next, { role: 'assistant', content: '' }]);
     setInput('');
     setAttachments([]);
@@ -366,11 +476,9 @@ export function AssistantChat({
     setLoading(true);
     let acc = '';
     try {
-      const userConfig =
-        apiConfig && validateApiConfig(apiConfig).ok ? apiConfig : null;
       const reply = await requestAssistantReplyStream(
         history,
-        buildDocContext(doc),
+        buildKnowledgeContext(scopedDocs, doc),
         userConfig,
         (delta) => {
           acc += delta;
@@ -418,7 +526,15 @@ export function AssistantChat({
       >
         <div className="assistant-chat__title">
           <strong>AI 助手</strong>
-          {doc && <span className="assistant-chat__doc">{doc.title}</span>}
+          {doc && (
+            <span className="assistant-chat__doc">
+              {mode === 'doc'
+                ? `当前知识库 · ${doc.title}`
+                : docs.length > 0
+                  ? `${docs.length} 个会话 · ${doc.title}`
+                  : doc.title}
+            </span>
+          )}
         </div>
         {variant === 'popover' && (
           <button
@@ -433,13 +549,9 @@ export function AssistantChat({
       </header>
 
       <div className="assistant-chat__list" ref={listRef}>
-        {messages.length === 0 && (
+        {messages.length === 0 && variant !== 'page' && (
           <div className="assistant-chat__empty">
-            <p>
-              {variant === 'page'
-                ? '可以问任何会话里的概念，也可以上传 PDF、Word、图片或文本让我读。'
-                : '基于当前会话提问，材料里没有的内容会直接说明。'}
-            </p>
+            <p>基于全部会话提问，材料里没有的内容会直接说明。</p>
             <div className="assistant-chat__hints">
               {['总结这次会话', '解释一个概念', '生成复习问题'].map((hint) => (
                 <button key={hint} type="button" onClick={() => void send(hint)}>
@@ -461,14 +573,22 @@ export function AssistantChat({
               key={`${message.role}-${index}`}
               className={`assistant-chat__bubble assistant-chat__bubble--${message.role}`}
             >
-              {message.content && (
-                <span className="assistant-chat__bubble-text">
-                  {message.content}
-                  {loading && index === messages.length - 1 && (
-                    <span className="assistant-chat__caret" aria-hidden="true" />
-                  )}
-                </span>
-              )}
+              {message.content &&
+                (message.role === 'assistant' ? (
+                  <div className="assistant-chat__bubble-text is-rich">
+                    <RichMessage text={message.content} />
+                    {loading && index === messages.length - 1 && (
+                      <span className="assistant-chat__caret" aria-hidden="true" />
+                    )}
+                  </div>
+                ) : (
+                  <span className="assistant-chat__bubble-text">
+                    {message.content}
+                    {loading && index === messages.length - 1 && (
+                      <span className="assistant-chat__caret" aria-hidden="true" />
+                    )}
+                  </span>
+                ))}
               {message.files && message.files.length > 0 && (
                 <div className="assistant-chat__bubble-files">
                   {message.files.map((file) => (
@@ -526,6 +646,54 @@ export function AssistantChat({
         </div>
       )}
 
+      {variant === 'page' && mode === 'doc' && doc && (
+        <div className="assistant-chat__quickbar">
+          {[
+            { label: '总结要点', prompt: '总结这份材料，列出最重要的 5 个要点' },
+            { label: '逐个讲解', prompt: '请逐个讲解这份材料里的所有知识点，每个知识点先给一句话总结，再把原文引用里的重点词展开解释' },
+            { label: '个性化复习', prompt: '根据我现在的掌握情况，帮我安排今天的复习顺序' },
+            { label: '出 5 道题', prompt: '基于这份材料出 5 道自测题，先给题目再给答案' },
+            { label: '诊断薄弱', prompt: '帮我诊断这份材料的薄弱点，优先补缺' },
+          ].map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              disabled={loading}
+              onClick={() => void send(action.prompt)}
+            >
+              {action.label}
+            </button>
+          ))}
+          {onStartQuiz && (
+            <button type="button" className="is-accent" onClick={onStartQuiz}>
+              开始自测
+            </button>
+          )}
+        </div>
+      )}
+
+      {variant === 'page' && mode === 'hub' && docs.length > 0 && (
+        <div className="assistant-chat__quickbar">
+          {[
+            { label: '总结全部会话', prompt: '帮我总结全部会话，列出每个会话最核心的 2-3 个要点' },
+            { label: '逐个讲解', prompt: '从所有会话里挑出最关键的 8 个知识点，逐个详细讲解' },
+            { label: '全局薄弱诊断', prompt: '诊断我所有会话的薄弱点，优先补缺' },
+            { label: '安排今日复习', prompt: '根据我全部会话的到期和掌握情况，安排今天的复习顺序' },
+            { label: '跨会话出题', prompt: '从不同会话各挑一题，出 5 道跨会话自测题' },
+            { label: '考前突击', prompt: '我要考前突击，给我 30 分钟跨会话冲刺计划' },
+          ].map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              disabled={loading}
+              onClick={() => void send(action.prompt)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <form
         className="assistant-chat__composer"
         onSubmit={(event) => {
@@ -572,7 +740,7 @@ export function AssistantChat({
                 <FileText size={13} />
                 <span className="assistant-chat__attach-label">
                   上传文件
-                  <small>PDF / Word / 文本</small>
+                  <small>PDF / Word / PPT / 文本</small>
                 </span>
               </button>
             </div>

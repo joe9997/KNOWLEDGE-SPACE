@@ -43,12 +43,15 @@ import type {
 } from '../lib/types';
 import { validateApiConfig } from '../lib/llm';
 import { normalizeAnnotationRange, overlapsAnnotation } from '../lib/annotations';
+import { buildDocMeta, deriveNodeTitle, isWeakNodeTitle } from '../lib/localExtract';
 import { fetchSnapshot, pushSnapshot } from '../lib/persistence';
 import { getServerAiStatus } from '../lib/serverAi';
 import type { ServerAiStatus } from '../lib/serverAi';
 
 interface CreateDocInput {
   title: string;
+  subtitle?: string;
+  summary?: string;
   text: string;
   origin: DocOrigin;
   nodes: KnowledgeNode[];
@@ -77,6 +80,7 @@ interface AppContextValue {
   addAnnotation: (docId: string, input: { start: number; end: number; note: string }) => void;
   removeAnnotation: (docId: string, annotationId: string) => void;
   reviewNode: (docId: string, nodeId: string, grade: ReviewGrade) => void;
+  updateNodeExplanations: (docId: string, explanations: Record<string, string>) => void;
   resetDemo: () => string;
   updateApiConfig: (config: ApiConfig | null) => void;
   login: (identifier: string, password: string) => Promise<void>;
@@ -89,6 +93,42 @@ interface AppContextValue {
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
+
+/**
+ * 旧文档的展示修正（只用于展示，不回写存储）：
+ * - 没有副标题 / 摘要时用本地规则补一份
+ * - 把 "However" / "In this section" 这类空标题换成从原文推导的标题
+ */
+function withAutoMeta(doc: KnowledgeDoc): KnowledgeDoc {
+  const meta = doc.text && (!doc.subtitle || !doc.summary) ? buildDocMeta(doc.text) : null;
+  const used = new Set<string>();
+  let titlesChanged = false;
+  const nodes = doc.nodes.map((node) => {
+    let title = node.title;
+    if (node.quote && isWeakNodeTitle(title)) {
+      title = deriveNodeTitle(node.quote, title);
+      titlesChanged = true;
+    }
+    let unique = title;
+    let suffix = 2;
+    while (used.has(unique)) {
+      unique = `${title} ${suffix}`;
+      suffix += 1;
+    }
+    used.add(unique);
+    return unique === node.title ? node : { ...node, title: unique };
+  });
+
+  if (!meta && !titlesChanged) {
+    return doc;
+  }
+  return {
+    ...doc,
+    subtitle: doc.subtitle ?? meta?.subtitle,
+    summary: doc.summary ?? meta?.summary,
+    nodes,
+  };
+}
 
 /** 合并本地与服务端数据：同一会话取 updatedAt 较新的版本 */
 function mergeDocs(remote: KnowledgeDoc[], local: KnowledgeDoc[]): KnowledgeDoc[] {
@@ -145,7 +185,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (next.length === 0) {
       next = [createDemoDoc()];
     }
-    setDocs(next);
+    setDocs(next.map(withAutoMeta));
     const activeId = remote?.activeDocId ?? loadActiveDocId(user.id) ?? next[0]?.id ?? null;
     setStoredActiveId(activeId);
     setHydrated(true);
@@ -255,6 +295,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const doc: KnowledgeDoc = {
       id,
       title: input.title.trim() || '未命名材料',
+      ...(input.subtitle?.trim() ? { subtitle: input.subtitle.trim() } : {}),
+      ...(input.summary?.trim() ? { summary: input.summary.trim() } : {}),
       text: input.text,
       origin: input.origin,
       createdAt: now,
@@ -378,6 +420,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [offsetDays, learningPrefs],
   );
 
+  /** 后台用 AI 批量给节点补 explanation；不阻塞 UI，失败静默。 */
+  const updateNodeExplanations = useCallback(
+    (docId: string, explanations: Record<string, string>) => {
+      const entries = Object.entries(explanations).filter(([, exp]) => exp && exp.trim());
+      if (entries.length === 0) {
+        return;
+      }
+      setDocs((prev) =>
+        prev.map((doc) => {
+          if (doc.id !== docId) {
+            return doc;
+          }
+          const patch = new Map(entries);
+          let touched = false;
+          const nodes = doc.nodes.map((node) => {
+            const exp = patch.get(node.id);
+            if (!exp || node.explanation === exp) {
+              return node;
+            }
+            touched = true;
+            return { ...node, explanation: exp };
+          });
+          if (!touched) {
+            return doc;
+          }
+          return { ...doc, nodes, updatedAt: Date.now() };
+        }),
+      );
+    },
+    [],
+  );
+
   const updateLearningPrefs = useCallback(
     (patch: Partial<LearningPrefs>) => {
       setLearningPrefs((prev) => {
@@ -447,6 +521,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addAnnotation,
       removeAnnotation,
       reviewNode,
+      updateNodeExplanations,
       resetDemo,
       updateApiConfig,
       login,
@@ -479,6 +554,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addAnnotation,
       removeAnnotation,
       reviewNode,
+      updateNodeExplanations,
       resetDemo,
       updateApiConfig,
       login,

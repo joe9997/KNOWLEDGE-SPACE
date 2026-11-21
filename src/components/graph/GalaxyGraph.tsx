@@ -62,6 +62,18 @@ function easeOutBack(t: number): number {
   return 1 + c3 * p * p * p + c1 * p * p;
 }
 
+/** 按画布宽度截断文本，避免文件名在中心节点下方溢出 */
+function fitCanvasLabel(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) {
+    return text;
+  }
+  let end = text.length;
+  while (end > 1 && ctx.measureText(`${text.slice(0, end)}…`).width > maxWidth) {
+    end -= 1;
+  }
+  return `${text.slice(0, end)}…`;
+}
+
 /**
  * 颜色只表达「掌握度」，与是否到期无关：
  * 0 没记住 / 1 有点模糊 / 2 已掌握。
@@ -707,8 +719,8 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         time: number,
       ) => {
         const active = selectedIdRef.current === entry.id || hoveredId === entry.id;
-        const isRoot = entry.node.parentId === null;
-        if (!active && !isRoot) {
+        // 中心主节点是「源点」而不是知识点，不再默认挂四芒星闪光
+        if (!active) {
           return;
         }
         const length = entry.radius * (active ? 5.4 : 3.6);
@@ -750,14 +762,22 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
       };
 
       const drawNode = (entry: ProjectedNode, time: number) => {
-        const palette = palettes.get(entry.id) ?? resolvePalette(entry.node, paletteTable);
+        const isRoot = entry.node.parentId === null;
+        // 中心主节点用一套独立的粉色「源点」配色，不参与掌握度配色
+        const palette = isRoot
+          ? {
+              core: light ? '#d9a8cf' : '#e0a8d8',
+              mid: light ? '#c9b2ee' : '#d8bcf5',
+              halo: light ? '224, 140, 197' : '238, 159, 214',
+            }
+          : palettes.get(entry.id) ?? resolvePalette(entry.node, paletteTable);
         const selected = selectedIdRef.current === entry.id;
         const hovered = hoveredId === entry.id;
         const active = selected || hovered;
         const nearness = entry.depth / 2 + 0.5;
         const alpha = (0.55 + nearness * 0.45) * (active ? 1 : 0.94);
         const radius = entry.radius * (selected ? 1.18 : hovered ? 1.1 : 1);
-        const haloRadius = radius * (entry.node.parentId === null ? 4.4 : 3.7);
+        const haloRadius = radius * 3.7;
         // 呼吸幅度略微加大，让中心星球一眼能看出在起伏
         const breath = 1 + 0.11 * Math.sin(time * 1.6 + entry.phase);
 
@@ -788,9 +808,14 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           entry.sy,
           haloRadius * breath,
         );
-        aura.addColorStop(0, `rgba(${palette.halo}, ${light ? 0.52 : 0.68})`);
-        aura.addColorStop(0.34, `rgba(${palette.halo}, ${light ? 0.26 : 0.34})`);
-        aura.addColorStop(0.7, `rgba(${palette.halo}, ${light ? 0.08 : 0.12})`);
+        // 中心主节点的光晕再提亮一档，让它像参考图一样醒目
+        const auraBoost = isRoot ? 1.4 : 1;
+        aura.addColorStop(0, `rgba(${palette.halo}, ${Math.min(1, (light ? 0.52 : 0.68) * auraBoost)})`);
+        aura.addColorStop(0.34, `rgba(${palette.halo}, ${Math.min(1, (light ? 0.26 : 0.34) * auraBoost)})`);
+        aura.addColorStop(
+          0.7,
+          `rgba(${palette.halo}, ${Math.min(1, (light ? 0.08 : 0.12) * auraBoost)})`,
+        );
         aura.addColorStop(1, 'rgba(255, 255, 255, 0)');
         ctx.fillStyle = aura;
         ctx.beginPath();
@@ -817,21 +842,30 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           ctx.fill();
         }
 
-        const coreRadius = radius * (active ? 1.7 : 1.5);
-        const core = ctx.createRadialGradient(entry.sx, entry.sy, 0, entry.sx, entry.sy, coreRadius);
-        core.addColorStop(0, '#FFFFFF');
-        core.addColorStop(0.24, light ? '#FFF9FB' : '#FFFFFF');
-        core.addColorStop(0.46, palette.core);
-        core.addColorStop(0.72, palette.mid);
-        core.addColorStop(0.9, `rgba(${palette.halo}, 0.36)`);
-        core.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        ctx.fillStyle = core;
-        ctx.beginPath();
-        ctx.arc(entry.sx, entry.sy, coreRadius, 0, Math.PI * 2);
-        ctx.fill();
+        const coreRadius = isRoot ? radius * 0.62 : radius * (active ? 1.7 : 1.5);
+        if (!isRoot) {
+          const core = ctx.createRadialGradient(
+            entry.sx,
+            entry.sy,
+            0,
+            entry.sx,
+            entry.sy,
+            coreRadius,
+          );
+          core.addColorStop(0, '#FFFFFF');
+          core.addColorStop(0.24, light ? '#FFF9FB' : '#FFFFFF');
+          core.addColorStop(0.46, palette.core);
+          core.addColorStop(0.72, palette.mid);
+          core.addColorStop(0.9, `rgba(${palette.halo}, 0.36)`);
+          core.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          ctx.fillStyle = core;
+          ctx.beginPath();
+          ctx.arc(entry.sx, entry.sy, coreRadius, 0, Math.PI * 2);
+          ctx.fill();
+        }
 
         // 球体自转：高光沿球面缓慢扫过，让圆球看起来是立体的、一直在转
-        if (coreRadius > 5.5) {
+        if (!isRoot && coreRadius > 5.5) {
           const spin = time * (0.5 + hash01(`${entry.id}:spin`) * 0.45) + entry.phase;
           const hx = entry.sx + Math.cos(spin) * coreRadius * 0.4;
           const hy = entry.sy + Math.sin(spin) * coreRadius * 0.46;
@@ -847,6 +881,63 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           ctx.fillStyle = shine;
           ctx.beginPath();
           ctx.arc(hx, hy, coreRadius * 0.62, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // 中心「源点」：文件标题对应的特殊节点。
+        // 外观参考品牌图标——实心圆点 + 外层光环 + 旋转轨道与卫星，不是知识点星核。
+        if (isRoot) {
+          const orbitRx = coreRadius * 2;
+          const orbitRy = coreRadius * 1.16;
+          ctx.save();
+          ctx.translate(entry.sx, entry.sy);
+          ctx.globalAlpha = alpha * entry.appear * (light ? 0.95 : 1);
+
+          // 外层实线光环
+          ctx.strokeStyle = light ? 'rgba(140, 124, 200, 0.34)' : 'rgba(214, 190, 255, 0.34)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(0, 0, coreRadius * 2.7, 0, TWO_PI);
+          ctx.stroke();
+
+          // 旋转的虚线轨道 + 同轨卫星点
+          ctx.save();
+          ctx.rotate(time * 0.22 + entry.phase * 0.12);
+          ctx.strokeStyle = light ? 'rgba(140, 124, 200, 0.5)' : 'rgba(214, 190, 255, 0.56)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 7]);
+          ctx.beginPath();
+          ctx.ellipse(0, 0, orbitRx, orbitRy, 0, 0, TWO_PI);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = palette.core;
+          ctx.beginPath();
+          ctx.arc(orbitRx, 0, coreRadius * 0.26, 0, TWO_PI);
+          ctx.fill();
+          ctx.restore();
+
+          // 反向旋转的第二层细轨道，增加纵深
+          ctx.save();
+          ctx.rotate(-time * 0.16);
+          ctx.strokeStyle = light ? 'rgba(140, 124, 200, 0.22)' : 'rgba(214, 190, 255, 0.24)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([1.5, 9]);
+          ctx.beginPath();
+          ctx.arc(0, 0, coreRadius * 1.7, 0, TWO_PI);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.restore();
+
+          // 主点：白心 → 薰衣草紫 → 粉的径向渐变，外圈 aura 负责粉色发光
+          const dot = ctx.createRadialGradient(0, 0, 0, 0, 0, coreRadius);
+          dot.addColorStop(0, light ? '#fff8fd' : '#ffffff');
+          dot.addColorStop(0.38, light ? '#fff8fd' : '#ffffff');
+          dot.addColorStop(0.72, palette.mid);
+          dot.addColorStop(1, light ? '#e08cc5' : '#ee9fd6');
+          ctx.fillStyle = dot;
+          ctx.beginPath();
+          ctx.arc(0, 0, coreRadius, 0, TWO_PI);
           ctx.fill();
           ctx.restore();
         }
@@ -869,10 +960,9 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
 
         ctx.restore();
 
-        const isRoot = entry.node.parentId === null;
-        const fontSize = isRoot ? 17 : 11.5 + clamp(entry.weight, 0, 1) * 2.5;
+        const fontSize = isRoot ? 19 : 11.5 + clamp(entry.weight, 0, 1) * 2.5;
         let labelX = entry.sx;
-        let labelY = entry.sy + radius + 27;
+        let labelY = entry.sy + radius + (isRoot ? 28 : 27);
         let align: CanvasTextAlign = 'center';
         if (view === 'tree') {
           labelX = entry.sx + radius + 12;
@@ -895,9 +985,21 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         ctx.font = `${selected || isRoot ? 600 : 500} ${fontSize}px ${FONT_STACK}`;
         ctx.textAlign = align;
         ctx.textBaseline = 'middle';
+        const labelText = isRoot ? docRef.current.title : entry.node.title;
+        const maxLabelWidth = isRoot
+          ? Math.min(width * (view === 'tree' ? 0.34 : 0.46), 340)
+          : 240;
+        const label = isRoot ? fitCanvasLabel(ctx, labelText, maxLabelWidth) : labelText;
+        const showOriginCaption = isRoot && (view === 'galaxy' || view === 'radial');
+        if (showOriginCaption) {
+          ctx.font = `9px ${FONT_STACK}`;
+          ctx.fillStyle = light ? 'rgba(55, 92, 138, 0.6)' : 'rgba(176, 204, 236, 0.66)';
+          ctx.fillText('O R I G I N', entry.sx, labelY + 16);
+          ctx.font = `600 ${fontSize}px ${FONT_STACK}`;
+        }
         ctx.lineWidth = 3.2;
         ctx.strokeStyle = light ? 'rgba(235, 242, 250, 0.82)' : 'rgba(8, 14, 28, 0.8)';
-        ctx.strokeText(entry.node.title, labelX, labelY);
+        ctx.strokeText(label, labelX, labelY);
         ctx.fillStyle = light
           ? isRoot || selected
             ? '#26364A'
@@ -905,7 +1007,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
           : isRoot || selected
             ? '#F8FAFC'
             : '#CBD5E1';
-        ctx.fillText(entry.node.title, labelX, labelY);
+        ctx.fillText(label, labelX, labelY);
         ctx.restore();
       };
 

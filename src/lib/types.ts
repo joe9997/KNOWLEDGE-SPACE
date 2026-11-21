@@ -8,7 +8,7 @@ export type GraphView = 'galaxy' | 'radial' | 'tree' | 'timeline' | 'venn';
 export type Mastery = 0 | 1 | 2;
 
 /** 复习状态：到期 / 模糊 / 已掌握 */
-export type NodeStatus = 'due' | 'fuzzy' | 'mastered';
+export type NodeStatus = 'due' | 'soon' | 'scheduled' | 'fuzzy' | 'mastered';
 
 export type DocOrigin = 'demo' | 'local' | 'ai';
 
@@ -28,6 +28,8 @@ export interface KnowledgeNode {
   lastReviewedAt: number | null;
   /** 毫秒时间戳 */
   nextReviewAt: number;
+  /** AI 基于 quote 扩写的详细讲解；旧文档或未调用 elaborate 时为空 */
+  explanation?: string;
 }
 
 export interface Relation {
@@ -51,6 +53,10 @@ export interface SourceAnnotation {
 export interface KnowledgeDoc {
   id: string;
   title: string;
+  /** 自动生成的副标题（论文标题 / 首句），旧数据可能没有 */
+  subtitle?: string;
+  /** 自动摘要，旧数据可能没有 */
+  summary?: string;
   text: string;
   origin: DocOrigin;
   createdAt: number;

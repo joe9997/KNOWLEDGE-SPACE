@@ -8,10 +8,20 @@ import {
   Upload,
 } from 'lucide-react';
 import { LiquidButton } from '../ui/LiquidButton';
-import { extractLocally, toKnowledgeNodes } from '../../lib/localExtract';
-import { extractFileText, FILE_ACCEPT } from '../../lib/fileText';
-import { extractWithAI, type ExtractionProgress } from '../../lib/llm';
-import { extractWithServer } from '../../lib/serverAi';
+import {
+  buildDocMeta,
+  deriveDocTitle,
+  extractLocally,
+  toKnowledgeNodes,
+} from '../../lib/localExtract';
+import {
+  detectFileKind,
+  extractFileText,
+  fileNameToTitle,
+  FILE_ACCEPT,
+} from '../../lib/fileText';
+import { extractWithAI, validateApiConfig, type ExtractionProgress } from '../../lib/llm';
+import { extractWithServer, elaborateNodesWithServer } from '../../lib/serverAi';
 import { useApp } from '../../state/AppStore';
 
 const MAX_CHARS = 1_000_000;
@@ -21,21 +31,13 @@ interface NewSessionFormProps {
   onOpenApi: () => void;
 }
 
-function deriveTitle(text: string): string {
-  const heading = text.match(/^\s*#{1,6}\s+(.+)$/m);
-  if (heading) {
-    return heading[1].trim().slice(0, 40);
-  }
-  const firstLine = text.split('\n').find((line) => line.trim())?.trim() ?? '';
-  return firstLine.replace(/^#{1,6}\s*/, '').slice(0, 28) || '未命名材料';
-}
-
 export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
-  const { apiReady, apiConfig, createDoc, serverAi, aiReady } = useApp();
+  const { apiReady, apiConfig, createDoc, serverAi, aiReady, updateNodeExplanations } = useApp();
   const viaServer = serverAi?.available === true;
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [titleTouched, setTitleTouched] = useState(false);
+  const [titleFromFile, setTitleFromFile] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [working, setWorking] = useState<'file' | 'ai' | null>(null);
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
@@ -44,18 +46,20 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!titleTouched) {
-      setTitle(text ? deriveTitle(text) : '');
+    if (!titleTouched && !titleFromFile) {
+      setTitle(text ? deriveDocTitle(text) : '');
     }
-  }, [text, titleTouched]);
+  }, [text, titleTouched, titleFromFile]);
 
   useEffect(() => {
     return () => abortRef.current?.abort();
   }, []);
 
   const loadFile = async (file: File) => {
-    if (file.size > 20 * 1024 * 1024) {
-      setError(`${file.name} 超过 20MB，请先拆分或压缩后再导入。`);
+    const kind = detectFileKind(file);
+    const limitMb = kind === 'pptx' ? 60 : 20;
+    if (file.size > limitMb * 1024 * 1024) {
+      setError(`${file.name} 超过 ${limitMb}MB，请先拆分或压缩后再导入。`);
       return;
     }
     setWorking('file');
@@ -68,7 +72,8 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
       }
       setText(content);
       if (!titleTouched) {
-        setTitle(deriveTitle(content));
+        setTitle(fileNameToTitle(file.name));
+        setTitleFromFile(true);
       }
       if (truncated) {
         setError(
@@ -110,7 +115,17 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
       setError('没有从这段材料中识别出可用节点，请检查文本结构后重试。');
       return;
     }
-    onCreated(createDoc({ title: title || deriveTitle(text), text, origin: 'local', nodes }));
+    const meta = buildDocMeta(text);
+    onCreated(
+      createDoc({
+        title: title || deriveDocTitle(text),
+        subtitle: meta.subtitle,
+        summary: meta.summary,
+        text,
+        origin: 'local',
+        nodes,
+      }),
+    );
   };
 
   const handleAI = async () => {
@@ -140,7 +155,44 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
       if (nodes.length === 0) {
         throw new Error('模型返回了内容，但没有可用的节点。');
       }
-      onCreated(createDoc({ title: title || deriveTitle(text), text, origin: 'ai', nodes }));
+      const meta = buildDocMeta(text);
+      const docId = createDoc({
+        title: title || deriveDocTitle(text),
+        subtitle: meta.subtitle,
+        summary: meta.summary,
+        text,
+        origin: 'ai',
+        nodes,
+      });
+      onCreated(docId);
+
+      // 后台自动给每个节点生成 AI 讲解，不阻塞跳转
+      // 服务端托管 AI 和浏览器自带 API Key 两种情况都触发
+      const effectiveConfig = viaServer
+        ? null
+        : apiConfig && validateApiConfig(apiConfig).ok
+          ? { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model }
+          : null;
+      if (viaServer || effectiveConfig) {
+        void (async () => {
+          try {
+            const elaborations = await elaborateNodesWithServer(
+              nodes.map((node) => ({
+                id: node.id,
+                title: node.title,
+                quote: node.quote,
+              })),
+              text,
+              effectiveConfig,
+            );
+            if (Object.keys(elaborations).length > 0) {
+              updateNodeExplanations(docId, elaborations);
+            }
+          } catch {
+            // 后台失败静默，用户已经拿到节点了，只是没有 AI 讲解
+          }
+        })();
+      }
     } catch (caught) {
       if (controller.signal.aborted) {
         return;
@@ -162,6 +214,7 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
           onChange={(event) => {
             setTitle(event.target.value);
             setTitleTouched(true);
+            setTitleFromFile(false);
           }}
           placeholder="例如：证据法讲义 · 证明责任"
           maxLength={60}
@@ -172,7 +225,7 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
         className={`dropzone ${dragging ? 'is-dragging' : ''}`.trim()}
         role="button"
         tabIndex={0}
-        aria-label="选择或拖入 PDF / Word / 文本文件"
+        aria-label="选择或拖入 PDF / Word / PPT / 文本文件"
         onClick={() => fileInputRef.current?.click()}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -196,7 +249,7 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
         </span>
         <span className="dropzone__text">
           {working === 'file' ? '正在读取文件…' : '拖入或选择文件'}
-          <span>支持 PDF / Word / 文本 · 最多 {MAX_CHARS.toLocaleString()} 字</span>
+          <span>支持 PDF / Word / PPT / 文本 · 最多 {MAX_CHARS.toLocaleString()} 字</span>
         </span>
         <input
           ref={fileInputRef}
