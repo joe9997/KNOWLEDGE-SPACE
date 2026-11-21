@@ -174,9 +174,6 @@ ul {
 
 .orbit-mark__core {
   fill: var(--accent-bright);
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: orbit-mark-pulse 3.6s ease-in-out infinite;
 }
 
 .orbit-mark__satellite {
@@ -190,30 +187,6 @@ ul {
 .orbit-mark__spin {
   transform-box: fill-box;
   transform-origin: center;
-  animation: orbit-mark-spin 16s linear infinite;
-}
-
-@keyframes orbit-mark-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes orbit-mark-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.07);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .orbit-mark__spin,
-  .orbit-mark__core {
-    animation: none;
-  }
 }
 
 /* ---------- 侧栏 ---------- */
@@ -1336,7 +1309,7 @@ ul {
   height: 7px;
   border-radius: 50%;
   flex: 0 0 auto;
-  background: var(--node-fuzzy);
+  background: var(--node-scheduled, var(--node-fuzzy));
   box-shadow: 0 0 7px var(--node-fuzzy-glow);
 }
 
@@ -1345,9 +1318,25 @@ ul {
   box-shadow: 0 0 7px var(--node-due-glow);
 }
 
+.status-dot[data-status='soon'] {
+  background: var(--node-fuzzy);
+  box-shadow: 0 0 7px var(--node-fuzzy-glow);
+}
+
+.status-dot[data-status='scheduled'] {
+  background: var(--node-mastered);
+  box-shadow: 0 0 7px var(--node-mastered-glow);
+  opacity: 0.78;
+}
+
 .status-dot[data-status='mastered'] {
   background: var(--node-mastered);
   box-shadow: 0 0 7px var(--node-mastered-glow);
+}
+
+.status-dot[data-status='fuzzy'] {
+  background: var(--node-fuzzy);
+  box-shadow: 0 0 7px var(--node-fuzzy-glow);
 }
 
 .review-empty {
@@ -2229,6 +2218,16 @@ ul {
   border-color: color-mix(in srgb, var(--node-due) 35%, transparent);
 }
 
+.chip[data-status='soon'] {
+  color: var(--node-fuzzy);
+  border-color: color-mix(in srgb, var(--node-fuzzy) 35%, transparent);
+}
+
+.chip[data-status='scheduled'] {
+  color: var(--node-mastered);
+  border-color: color-mix(in srgb, var(--node-mastered) 35%, transparent);
+}
+
 .chip[data-status='fuzzy'] {
   color: var(--node-fuzzy);
   border-color: color-mix(in srgb, var(--node-fuzzy) 35%, transparent);
@@ -2253,6 +2252,21 @@ ul {
   text-transform: uppercase;
   color: var(--text-faint);
   margin-bottom: 7px;
+}
+
+.source-explanation {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent-glow) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid var(--line-soft);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.9;
+  strong {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
 }
 
 .source-quote {

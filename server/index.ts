@@ -460,6 +460,92 @@ app.post('/api/ai/extract', requireAuth, aiLimiter, async (req: AuthedRequest, r
   }
 });
 
+app.post('/api/ai/elaborate', requireAuth, aiLimiter, async (req: AuthedRequest, res: Response) => {
+  const ai = readUserAiConfig(req.body?.config) ?? config.ai;
+  if (!ai) {
+    res.status(503).json({ error: NO_AI_MESSAGE });
+    return;
+  }
+  const rawNodes = Array.isArray(req.body?.nodes) ? req.body.nodes : [];
+  const text = typeof req.body?.text === 'string' ? req.body.text : '';
+  if (rawNodes.length === 0) {
+    res.status(400).json({ error: '请求缺少 nodes 字段。' });
+    return;
+  }
+  // 限规模：每个节点 250 字上限，总共 6000 字上限，避免 prompt 过大
+  const nodes = rawNodes
+    .slice(0, 16)
+    .map((item) => {
+      const node = item as { id?: unknown; title?: unknown; quote?: unknown };
+      const id = typeof node.id === 'string' ? node.id : '';
+      const title = typeof node.title === 'string' ? node.title.trim() : '';
+      const quote = typeof node.quote === 'string' ? node.quote.trim() : '';
+      return { id, title, quote };
+    })
+    .filter((node) => node.id && node.title);
+
+  const textHint = text
+    ? `\n\n全文参考（截取前 ${Math.min(2000, text.length)} 字）：\n${text.replace(/\s+/g, ' ').trim().slice(0, 2000)}`
+    : '';
+
+  const systemPrompt =
+    '你是知识讲解助手。严格只使用用户提供的原文信息扩写讲解，不引入外部知识。每个讲解 120-200 字，结构是：先给一句话总结核心，再把原句引用里的重点词加粗并展开解释，最后补一句它在整篇材料里的作用。只输出 JSON 数组，格式：[{"id":"...","explanation":"..."}]，不要输出任何解释文字或代码块。';
+
+  const userPrompt = [
+    '请为以下知识节点各写一段详细讲解。每个讲解必须基于给出的「原文引用」展开，不得编造。',
+    '',
+    ...nodes.map(
+      (node, index) =>
+        `${index + 1}. [${node.id}] ${node.title}${node.quote ? `\n   原文引用：${node.quote}` : ''}`,
+    ),
+    textHint,
+  ].join('\n');
+
+  try {
+    const reply = await chat(
+      ai,
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      (config.extractTimeoutMs ?? 60_000) + 30_000,
+    );
+
+    // 从回复里抽 JSON 数组（容忍模型输出前后多余文字）
+    const jsonMatch =
+      reply.match(/\[[\s\S]*\]/) ??
+      reply.match(/```(?:json)?\s*([\s\S]*?)```/)?.[1] ??
+      reply.match(/\{[\s\S]*\}/);
+    let parsed: unknown;
+    if (jsonMatch) {
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch {
+        parsed = null;
+      }
+    }
+
+    const map = new Map<string, string>();
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        const id = (item as { id?: unknown }).id;
+        const exp = (item as { explanation?: unknown }).explanation;
+        if (typeof id === 'string' && typeof exp === 'string' && exp.trim()) {
+          map.set(id, exp.trim().slice(0, 600));
+        }
+      }
+    }
+    console.log(
+      `[ai] elaborate ok · 处理 ${nodes.length} 个节点，生成 ${map.size} 段讲解`,
+    );
+    res.json({ explanations: Object.fromEntries(map) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[ai] elaborate failed · ${message}`);
+    res.status(502).json({ error: message });
+  }
+});
+
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: '接口不存在。' });
 });

@@ -571,8 +571,63 @@ function findVocabEntry(node: KnowledgeDoc['nodes'][number], entries: Map<string
   return closest?.entry ?? null;
 }
 
+/** 抽取单个 doc 的学习画像：到期、薄弱、已掌握 */
+function profileDoc(doc: KnowledgeDoc, now: number) {
+  const due = doc.nodes.filter((node) => isDue(node.nextReviewAt, now));
+  const weak = doc.nodes.filter((node) => node.mastery === 0);
+  const fuzzy = doc.nodes.filter((node) => node.mastery === 1);
+  const mastered = doc.nodes.filter((node) => node.mastery === 2);
+  return { due, weak, fuzzy, mastered };
+}
+
+/** 给单个 doc 生成「薄弱诊断 + 复习安排」段落 */
+function renderLearningPlan(doc: KnowledgeDoc, now: number): string[] {
+  const { due, weak, fuzzy, mastered } = profileDoc(doc, now);
+  const risk = [...due, ...weak, ...fuzzy];
+  const lines = [
+    '',
+    `📊 学习诊断 · 《${doc.title}》`,
+    `到期 ${due.length} · 薄弱 ${weak.length} · 模糊 ${fuzzy.length} · 已掌握 ${mastered.length}`,
+  ];
+  if (risk.length === 0) {
+    lines.push('当前没有明显缺口，可以开始一轮混合自测巩固。');
+  } else {
+    lines.push(
+      '建议顺序：到期 → 薄弱 → 模糊，每轮 5 个，答错的下次优先：',
+      ...risk
+        .slice(0, 5)
+        .map((node, index) => `${index + 1}. **${node.title}**（${masteryLabel(node.mastery, node.nextReviewAt, now)}）`),
+    );
+  }
+  return lines;
+}
+
+function masteryLabel(mastery: number, nextReviewAt: number | null, now: number): string {
+  const tags: string[] = [];
+  if (nextReviewAt && isDue(nextReviewAt, now)) {
+    tags.push('今天到期');
+  }
+  tags.push(mastery === 0 ? '薄弱' : mastery === 1 ? '模糊' : '已掌握');
+  return tags.join(' · ');
+}
+
+/** 自动出题：从 doc 的节点里挑有 quote 的若干条 */
+function renderQuiz(doc: KnowledgeDoc, count = 5): string[] {
+  const picked = doc.nodes.filter((node) => node.quote).slice(0, count);
+  if (picked.length === 0) {
+    return [];
+  }
+  return [
+    '',
+    `📝 自测 ${picked.length} 题（答案在题后）：`,
+    ...picked.map(
+      (node, index) => `${index + 1}. ${node.question}\n   答案：${clip(node.quote, 90)}`,
+    ),
+  ];
+}
+
 /**
- * 只针对当前知识库的自动开场：先总结，再出 5 道题。
+ * 只针对当前知识库的自动开场：总览 → 知识点 → 学习诊断 → 出题。
  * 用于图谱页头部的「AI 助手」按钮，打开即开始个性化学习。
  */
 export function buildAutoStudyBrief(doc: KnowledgeDoc | null): string | null {
@@ -580,9 +635,7 @@ export function buildAutoStudyBrief(doc: KnowledgeDoc | null): string | null {
     return null;
   }
   const now = Date.now();
-  const due = doc.nodes.filter((node) => isDue(node.nextReviewAt, now)).length;
-  const mastered = doc.nodes.filter((node) => node.mastery === 2).length;
-  const quiz = doc.nodes.filter((node) => node.quote).slice(0, 5);
+  const { due, weak, fuzzy, mastered } = profileDoc(doc, now);
   const byId = new Map(doc.nodes.map((node) => [node.id, node]));
   const vocab = parseVocab(doc.text);
   const childrenOf = new Map<string, string[]>();
@@ -595,18 +648,20 @@ export function buildAutoStudyBrief(doc: KnowledgeDoc | null): string | null {
     childrenOf.set(node.parentId, list);
   }
 
-  return [
-    `当前知识库《${doc.title}》`,
+  const overview = [
+    `📚 当前知识库《${doc.title}》`,
     doc.subtitle ? `主题：${doc.subtitle}` : '',
     doc.summary ? `摘要：${doc.summary}` : '',
-    `规模：${doc.nodes.length} 个要点 · 今天到期 ${due} 个 · 已掌握 ${mastered} 个`,
+    `规模：${doc.nodes.length} 个要点 · 今天到期 ${due.length} · 薄弱 ${weak.length} · 模糊 ${fuzzy.length} · 已掌握 ${mastered.length}`,
+  ].filter(Boolean);
+
+  const knowledgePoints = [
     '',
-    `知识点（共 ${doc.nodes.length} 个）：`,
+    `📍 知识点速览（共 ${doc.nodes.length} 个）：`,
     ...doc.nodes.flatMap((node, index) => {
       const lines = [`${index + 1}. **${node.title}**`];
       const entry = vocab.size > 0 ? findVocabEntry(node, vocab) : null;
       if (entry) {
-        // 单词笔记：释义 + 例句，重点加粗
         lines.push(
           `   **${entry.word}** ${entry.phonetic} ${entry.pos}. **${entry.meaning}**`
             .replace(/\s+/g, ' ')
@@ -617,6 +672,10 @@ export function buildAutoStudyBrief(doc: KnowledgeDoc | null): string | null {
         }
       } else if (node.quote) {
         lines.push(`   ${emphasizeQuote(clip(node.quote, 240))}`);
+      } else if (node.explanation) {
+        // quote 缺失时，用本地合成的 explanation 作为讲解
+        const body = node.explanation.replace(/^\*\*[^*]+\*\* 的要点：\n?/, '').trim();
+        if (body) lines.push(`   ${clip(body, 240)}`);
       }
       const parent = node.parentId ? byId.get(node.parentId) : null;
       const children = childrenOf.get(node.id) ?? [];
@@ -629,15 +688,93 @@ export function buildAutoStudyBrief(doc: KnowledgeDoc | null): string | null {
       }
       return lines;
     }),
-    '',
-    quiz.length > 0 ? '再来自测 5 题（答案在题后）：' : '',
-    ...quiz.map(
-      (node, index) => `${index + 1}. ${node.question}\n   答案：${clip(node.quote, 90)}`,
-    ),
+  ];
+
+  return [
+    ...overview,
+    ...knowledgePoints,
+    ...renderLearningPlan(doc, now),
+    ...renderQuiz(doc, 5),
   ]
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * 跨所有会话的 hub 模式自动开场：总览 → 各会话摘要 → 全局薄弱诊断 → 全局出题。
+ * 用于侧栏「AI 助手」入口。
+ */
+export function buildHubStudyBrief(docs: KnowledgeDoc[]): string | null {
+  const nonEmpty = docs.filter((doc) => doc.nodes.length > 0);
+  if (nonEmpty.length === 0) {
+    return null;
+  }
+  const now = Date.now();
+  const allDue = nonEmpty.reduce((sum, doc) => sum + doc.nodes.filter((n) => isDue(n.nextReviewAt, now)).length, 0);
+  const allWeak = nonEmpty.reduce((sum, doc) => sum + doc.nodes.filter((n) => n.mastery === 0).length, 0);
+  const allNodes = nonEmpty.reduce((sum, doc) => sum + doc.nodes.length, 0);
+
+  const overview = [
+    `🧠 知识库总览 · 共 ${nonEmpty.length} 个会话，${allNodes} 个要点`,
+    `今天到期 ${allDue} · 薄弱 ${allWeak} · 跨会话回答任一侧材料的问题。`,
+  ];
+
+  const summaries = [
+    '',
+    '📚 各会话摘要：',
+    ...nonEmpty.slice(0, 6).map((doc, index) => {
+      const { due, weak } = profileDoc(doc, now);
+      const firstPoints = doc.nodes.slice(0, 3).map((n) => n.title).join('、');
+      return `${index + 1}. **${doc.title}**${doc.subtitle ? `（${doc.subtitle}）` : ''} · ${doc.nodes.length} 要点${due.length > 0 ? ` · 到期 ${due.length}` : ''}${weak.length > 0 ? ` · 薄弱 ${weak.length}` : ''}${firstPoints ? `\n   要点：${firstPoints}` : ''}`;
+    }),
+  ];
+
+  // 全局薄弱点：按 (due, weak, fuzzy) 排序挑前 5 个节点
+  const rankedRisk = nonEmpty
+    .flatMap((doc) => {
+      return doc.nodes
+        .filter((node) => isDue(node.nextReviewAt, now) || node.mastery < 2)
+        .map((node) => ({ doc, node }));
+    })
+    .sort((a, b) => {
+      const scoreOf = (item: { doc: KnowledgeDoc; node: KnowledgeDoc['nodes'][number] }) => {
+        let s = 0;
+        if (isDue(item.node.nextReviewAt, now)) s += 10;
+        if (item.node.mastery === 0) s += 6;
+        else if (item.node.mastery === 1) s += 3;
+        return s;
+      };
+      return scoreOf(b) - scoreOf(a);
+    })
+    .slice(0, 5);
+
+  const diagnosis = [
+    '',
+    '🎯 全局薄弱诊断（优先补缺）：',
+    rankedRisk.length === 0
+      ? '当前所有会话都没有明显缺口，可以挑一个做混合自测。'
+      : rankedRisk.map((item, index) => {
+          const { doc, node } = item;
+          return `${index + 1}. **${node.title}**（来自《${doc.title}》）\n   ${emphasizeQuote(clip(node.quote || node.question, 120))}`;
+        }),
+  ];
+
+  // 全局出题：从不同会话各挑 1 题
+  const quiz: string[] = [];
+  let idx = 0;
+  for (const doc of nonEmpty) {
+    const pick = doc.nodes.find((n) => n.quote);
+    if (pick && idx < 5) {
+      quiz.push(`${idx + 1}. ${pick.question}（来自《${doc.title}》）\n   答案：${clip(pick.quote, 90)}`);
+      idx += 1;
+    }
+    if (idx >= 5) break;
+  }
+
+  const quizSection = quiz.length > 0 ? ['', '📝 跨会话自测（5 题）：', ...quiz] : [];
+
+  return [...overview, ...summaries, ...diagnosis, ...quizSection].join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 

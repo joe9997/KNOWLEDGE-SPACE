@@ -11,6 +11,16 @@ import type { KnowledgeDoc, KnowledgeNode, SourceAnnotation } from '../../lib/ty
 import { useApp } from '../../state/AppStore';
 import { usePrefersReducedMotion } from '../../lib/useMediaQuery';
 
+/** 把 **重点** 渲染成加粗 */
+function renderInline(text: string) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>;
+    }
+    return <span key={index}>{part}</span>;
+  });
+}
+
 interface SourcePanelProps {
   doc: KnowledgeDoc;
   node: KnowledgeNode;
@@ -292,6 +302,13 @@ export function SourcePanel({ doc, node, onClose, onQuiz }: SourcePanelProps) {
       </header>
 
       <div className="source-panel__body" ref={scrollRef}>
+        {node.explanation && (
+          <>
+            <p className="source-panel__block-label">AI 讲解</p>
+            <div className="source-explanation">{renderInline(node.explanation)}</div>
+          </>
+        )}
+
         <p className="source-panel__block-label">原文引用</p>
         {matched ? (
           <blockquote className="source-quote">{node.quote}</blockquote>

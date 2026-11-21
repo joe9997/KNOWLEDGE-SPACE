@@ -235,9 +235,156 @@ export function deriveNodeTitle(quote: string, fallback = '未命名节点'): st
   return title && title !== '未命名节点' ? title : fallback;
 }
 
-function questionFor(title: string): string {
+function questionFor(title: string, quote?: string): string {
+  const text = quote || title;
   const core = title.length > 20 ? title.slice(0, 20) : title;
+
+  // 按关键词生成更贴合的问句
+  if (/定义|概念|是指|称为/.test(text)) {
+    return `什么是「${core}」？请用自己的话解释它的核心要点。`;
+  }
+  if (/分类|类型|种类|分为|包括/.test(text)) {
+    return `「${core}」可以分成哪几类？它们各自的特点是什么？`;
+  }
+  if (/方法|步骤|算法|流程|步骤|过程/.test(text)) {
+    return `「${core}」的具体步骤或实现思路是什么？`;
+  }
+  if (/转换|转换|cast|强转|赋值|运算/.test(text)) {
+    return `「${core}」在什么情况下会发生？需要注意什么？`;
+  }
+  if (/规则|语法|规范|要求|约束/.test(text)) {
+    return `「${core}」有哪些关键规则或语法要点？`;
+  }
+  if (/区别|对比|vs|不同|差异|比较/.test(text)) {
+    return `「${core}」和相关概念相比，最核心的区别是什么？`;
+  }
+  if (/作用|意义|影响|结果|效果|用途/.test(text)) {
+    return `「${core}」的作用或实际意义是什么？`;
+  }
+  if (/例|示例|例子|example/i.test(text)) {
+    return `请用「${core}」举一个例子，并说明为什么符合定义。`;
+  }
+  if (/true|false|判断|对错|正误/.test(text)) {
+    return `关于「${core}」的说法，哪些是正确的，哪些是错误的？`;
+  }
+
+  // 兜底：如果 quote 本身是完整句子，直接针对 quote 提问
+  if (quote && quote.length >= 20 && /[。.!?！？]$/.test(quote.trim())) {
+    // 把陈述句转成问句：去掉结尾标点 + "是什么意思？"
+    const stem = quote.trim().replace(/[。.!?！？]+$/, '');
+    return `这句话"${stem.slice(0, 40)}${stem.length > 40 ? '…' : ''}"说的是什么意思？`;
+  }
+
   return `「${core}」的核心含义是什么？`;
+}
+
+/**
+ * 本地兜底讲解：不依赖 AI，从 title + quote 拼出一段可读的讲解。
+ * 格式：先一句话概括 → 再把 quote 里的核心词加粗 → 最后点出用途/注意点。
+ * 如果 quote 太短或空，就退化成标题改写。
+ */
+function synthesizeLocalExplanation(title: string, quote: string): string {
+  const q = quote.replace(/\s+/g, ' ').trim();
+  const t = title.trim();
+
+  // 1. 概括句
+  let summary: string;
+  if (t && q) {
+    summary = `**${t}** 的要点：`;
+  } else if (q) {
+    summary = '这段内容说的是：';
+  } else {
+    summary = `**${t || '该概念'}**。`;
+    return summary;
+  }
+
+  // 2. 从 quote 里挑核心词加粗：定义类 → 把定义的主语加粗；技术类 → 把代码/关键术语加粗
+  let body = '';
+  if (q.length >= 10) {
+    // 找 1-2 个最值得加粗的部分
+    const parts = splitChineseSentence(q);
+    const boldIndexes = pickBoldIndices(parts, q);
+    const bolded = parts.map((part, i) =>
+      boldIndexes.includes(i) && part.length >= 2 ? `**${part}**` : part,
+    ).join('');
+    body = bolded.length < q.length ? bolded : q;
+  } else {
+    body = q;
+  }
+
+  // 3. 简短用途/注意点
+  const suffix =
+    /必须|注意|不能|会丢失|精度/.test(q) && q.length > 20
+      ? '\n⚠️ 这里涉及**关键约束**或**潜在风险**，回顾时要特别留意。'
+      : /例|示例|例子/i.test(q)
+        ? '\n💡 记住这个例子可以帮你记住概念本身。'
+        : q.length > 40
+          ? '\n🔍 回顾时可以尝试用自己的话复述一遍。'
+          : '';
+
+  return `${summary}\n${body}${suffix}`;
+}
+
+/** 把中文句子按标点拆成片段，英文按空格 + 标点拆 */
+function splitChineseSentence(text: string): string[] {
+  const clean = text.replace(/^\s+|\s+$/g, '');
+  if (!clean) return [];
+  // 中英文混合拆分：先按中文标点拆，再对每个片段按英文单词拆
+  const byCN = clean.split(/([，。；：、（）\(\)])/).filter(Boolean);
+  const result: string[] = [];
+  for (const segment of byCN) {
+    if (/^[，。；：、（）\(\)]$/.test(segment)) {
+      // 标点附加到上一个片段
+      if (result.length > 0) result[result.length - 1] += segment;
+      else result.push(segment);
+      continue;
+    }
+    // 英文部分：按空格拆
+    if (/[A-Za-z]/.test(segment)) {
+      const words = segment.match(/[A-Za-z_][A-Za-z0-9_]*[^A-Za-z0-9_]*/g) ?? [segment];
+      result.push(...words.filter(Boolean));
+    } else {
+      result.push(segment);
+    }
+  }
+  return result.filter((p) => p.trim().length > 0);
+}
+
+/** 从片段里挑 1-2 个最值得加粗的：包含关键动词/名词 或 最长的非标点片段 */
+function pickBoldIndices(parts: string[], _quote: string): number[] {
+  if (parts.length <= 1) return [];
+  const keywordSet = new Set([
+    '定义', '概念', '方法', '规则', '类型', '转换', '强制', '自动', '精度', '类型',
+    '必须', '赋值', '运算', '结果', '包含', '包括', '称为', '作用',
+    'Java', 'int', 'byte', 'short', 'long', 'float', 'double', 'char', 'boolean',
+    'JVM', 'API', 'IDE', 'UTF', 'ASCII', 'Unicode',
+  ]);
+  const scored = parts
+    .map((part, index) => {
+      let score = 0;
+      if (keywordSet.has(part)) score += 5;
+      if (keywordSet.has(part.toLowerCase())) score += 5;
+      // 代码风格 (大小写混合) 优先加粗
+      if (/[A-Z][a-z]/.test(part) && part.length >= 2) score += 4;
+      // 足够长的中文片段
+      if (/[\u4e00-\u9fa5]/.test(part) && part.length >= 3 && part.length <= 10) score += 2;
+      // 纯数字跳过
+      if (/^\d+$/.test(part)) score -= 10;
+      return { index, score };
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  const picked = scored.filter((s) => s.score > 0).slice(0, 2);
+  // 兜底：挑最长的 1 个片段（不是纯标点或数字）
+  if (picked.length === 0) {
+    const fallback = parts
+      .map((part, index) => ({ index, len: part.replace(/[，。；：、（）\(\)\s\d]/g, '').length }))
+      .filter((p) => p.len >= 3)
+      .sort((a, b) => b.len - a.len || a.index - b.index);
+    if (fallback.length > 0) picked.push({ index: fallback[0].index, score: 1 });
+  }
+
+  return picked.map((p) => p.index);
 }
 
 interface Heading {
@@ -245,6 +392,43 @@ interface Heading {
   end: number;
   level: number;
   title: string;
+}
+
+/** 当 quote 为空或未匹配时，用 title 作为锚点在原文里找一个替代引用 */
+function findQuoteByTitle(text: string, title: string): { text: string; start: number; end: number } | null {
+  const t = title.trim();
+  if (!t || t.length < 2) return null;
+
+  // 尝试 1: 直接在原文里找 title，然后取它后面的第一句
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const direct = new RegExp(escaped, '');
+  let idx = direct.test(text) ? text.search(direct) : -1;
+
+  // 尝试 2: title 的第一个实词片段（去掉"2.1.3"/"第"/"章"等前缀）
+  if (idx < 0) {
+    const clean = t.replace(/^[0-9.一二三四五六七八九十第章节\s]+/, '').trim();
+    if (clean.length >= 2) {
+      const cleanEscaped = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      idx = text.search(new RegExp(cleanEscaped));
+    }
+  }
+
+  if (idx < 0) return null;
+
+  // 取 title 之后第一句作为 quote（最多 200 字）
+  const after = text.slice(idx + t.length);
+  const firstSentenceEnd = after.search(/[。！？.!?]/);
+  const sentence =
+    firstSentenceEnd >= 0
+      ? after.slice(0, firstSentenceEnd + 1).trim()
+      : after.slice(0, 120).trim();
+
+  if (sentence.length < 6) return null;
+  return {
+    text: sentence,
+    start: idx + t.length,
+    end: idx + t.length + sentence.length,
+  };
 }
 
 function findHeadings(text: string): Heading[] {
@@ -729,7 +913,7 @@ export function extractLocally(text: string): ExtractedNode[] {
     extracted.push({
       title: shortTitle(first.title),
       quote: coreQuote,
-      question: questionFor(first.title),
+      question: questionFor(first.title, coreQuote),
       level: 0,
     });
 
@@ -740,7 +924,7 @@ export function extractLocally(text: string): ExtractedNode[] {
       extracted.push({
         title: shortTitle(heading.title),
         quote,
-        question: questionFor(heading.title),
+        question: questionFor(heading.title, quote),
         level: Math.min(3, Math.max(1, heading.level - first.level + 1)),
       });
     }
@@ -752,7 +936,7 @@ export function extractLocally(text: string): ExtractedNode[] {
         extracted.push({
           title: shortTitle(fallback),
           quote: fallback,
-          question: questionFor(fallback),
+          question: questionFor(fallback, fallback),
           level: 0,
         });
       }
@@ -776,7 +960,7 @@ export function extractLocally(text: string): ExtractedNode[] {
         extracted.push({
           title,
           quote: candidate.text,
-          question: questionFor(title),
+          question: questionFor(title, candidate.text),
           level: index === 0 ? 0 : 1,
         });
       });
@@ -801,7 +985,7 @@ export function extractLocally(text: string): ExtractedNode[] {
       extracted.push({
         title: titleFromSentence(sentence),
         quote: sentence,
-        question: questionFor(sentence),
+        question: questionFor(titleFromSentence(sentence), sentence),
         level: 1,
       });
     }
@@ -810,7 +994,7 @@ export function extractLocally(text: string): ExtractedNode[] {
   return extracted.slice(0, MAX_LOCAL_NODES);
 }
 
-/** 把抽取结果补齐为可复习节点，引用匹配失败时明确标记为无出处（-1） */
+/** 把抽取结果补齐为可复习节点，引用匹配失败时尝试用标题附近的正文回源 */
 export function toKnowledgeNodes(
   extracted: ExtractedNode[],
   text: string,
@@ -821,7 +1005,23 @@ export function toKnowledgeNodes(
   const nodes: KnowledgeNode[] = [];
 
   extracted.forEach((item, index) => {
-    const match = findQuote(text, item.quote);
+    let quote = item.quote.trim();
+    let match = findQuote(text, quote);
+
+    // 兜底 1：quote 为空或未匹配 → 用 title 在原文里找最近的句子
+    if (quote.length < 6 || !match.matched) {
+      const fallback = findQuoteByTitle(text, item.title);
+      if (fallback) {
+        quote = fallback.text;
+        match = { matched: true, exact: false, start: fallback.start, end: fallback.end };
+      }
+    }
+
+    // 兜底 2：仍然没匹配 → 让 quote 里至少有内容（AI 写的，即使无出处也展示）
+    if (quote.length < 6 && item.title.length >= 2) {
+      quote = `${item.title}：${item.quote || ''}`.trim();
+    }
+
     let title = item.title.trim() || `节点 ${index + 1}`;
     let suffix = 2;
     while (usedTitles.has(title)) {
@@ -833,8 +1033,8 @@ export function toKnowledgeNodes(
     const node: KnowledgeNode = {
       id: createId('node'),
       title,
-      question: item.question || questionFor(title),
-      quote: item.quote,
+      question: item.question || questionFor(title, quote),
+      quote,
       quoteStart: match.matched ? match.start : -1,
       quoteEnd: match.matched ? match.end : -1,
       parentId: null,
@@ -843,6 +1043,7 @@ export function toKnowledgeNodes(
       goodStreak: 0,
       lastReviewedAt: null,
       nextReviewAt: now,
+      explanation: synthesizeLocalExplanation(title, quote),
     };
 
     while (stack.length > 0 && stack[stack.length - 1].level >= node.level) {

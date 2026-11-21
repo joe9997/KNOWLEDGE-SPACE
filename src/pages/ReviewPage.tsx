@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, Check, Eye, ListChecks } from 'lucide-react';
 import {
+  collectDueNodesFromDocs,
   formatRelativeDue,
   GRADE_LABEL,
-  isDue,
   STATUS_LABEL,
   statusOf,
 } from '../lib/review';
@@ -29,8 +29,7 @@ const MAX_CARDS = 6;
 const EMPTY_CARD: CardState = { revealed: false, grade: null };
 
 export function ReviewPage() {
-  const { activeDoc, now, reviewNode } = useApp();
-  const docId = activeDoc?.id ?? null;
+  const { docs, activeDoc, now, reviewNode } = useApp();
   const seqRef = useRef(0);
   const [batches, setBatches] = useState<ReviewBatch[]>([]);
   const [cards, setCards] = useState<Record<string, CardState>>({});
@@ -42,18 +41,24 @@ export function ReviewPage() {
     return `${prefix}-${seqRef.current}`;
   };
 
-  // 进入页面或切换会话时，先把今天到期的节点做成第一组卡片
+  // 全局 nodeId → { docId, node }，跨所有 docs 建，方便跨会话复习
+  const nodeMap = useMemo(() => {
+    const map = new Map<string, { docId: string; docTitle: string; node: KnowledgeNode; text: string }>();
+    for (const doc of docs) {
+      for (const node of doc.nodes) {
+        map.set(node.id, { docId: doc.id, docTitle: doc.title, node, text: doc.text });
+      }
+    }
+    return map;
+  }, [docs]);
+
+  // 进入页面时自动把所有 docs 今天到期/临近的节点做成第一组卡片
   useEffect(() => {
     setBatches([]);
     setCards({});
     setInput('');
     setActiveCard(null);
-    if (!activeDoc) {
-      return;
-    }
-    const due = activeDoc.nodes
-      .filter((node) => isDue(node.nextReviewAt, now))
-      .slice(0, MAX_CARDS);
+    const due = collectDueNodesFromDocs(docs, now).slice(0, MAX_CARDS);
     if (due.length === 0) {
       return;
     }
@@ -62,40 +67,35 @@ export function ReviewPage() {
       {
         id: batchId,
         query: '',
-        note: `今天有 ${due.length} 个知识点到期，先做这一组。也可以继续写下想复习的内容。`,
-        nodeIds: due.map((node) => node.id),
+        note: `今天有 ${due.length} 个知识点到期或临近，先做这一组。也可以继续写下想复习的内容。`,
+        nodeIds: due.map((item) => item.node.id),
         initial: true,
       },
     ]);
     setCards(
       Object.fromEntries(
-        due.map((node) => [`${batchId}:${node.id}`, { ...EMPTY_CARD }]),
+        due.map((item) => [`${batchId}:${item.node.id}`, { ...EMPTY_CARD }]),
       ),
     );
-  }, [docId]);
-
-  const nodeById = useMemo(
-    () =>
-      new Map<string, KnowledgeNode>(
-        (activeDoc?.nodes ?? []).map(
-          (node): [string, KnowledgeNode] => [node.id, node],
-        ),
-      ),
-    [activeDoc],
-  );
+  }, [docs, now]);
 
   const navCards = useMemo(() => {
-    const list: Array<{ key: string; node: KnowledgeNode }> = [];
+    const list: Array<{ key: string; node: KnowledgeNode; docId: string; docTitle: string }> = [];
     for (const batch of batches) {
       for (const nodeId of batch.nodeIds) {
-        const node = nodeById.get(nodeId);
-        if (node) {
-          list.push({ key: `${batch.id}:${nodeId}`, node });
+        const item = nodeMap.get(nodeId);
+        if (item) {
+          list.push({
+            key: `${batch.id}:${nodeId}`,
+            node: item.node,
+            docId: item.docId,
+            docTitle: item.docTitle,
+          });
         }
       }
     }
     return list;
-  }, [batches, nodeById]);
+  }, [batches, nodeMap]);
 
   const navIndex = useMemo(
     () =>
@@ -133,24 +133,20 @@ export function ReviewPage() {
 
   const send = (raw: string) => {
     const query = raw.trim();
-    if (!query || !activeDoc) {
+    if (!query) {
       return;
     }
-    const matched = matchReviewNodes(activeDoc, query, MAX_CARDS);
-    const fallback =
-      matched.length === 0
-        ? activeDoc.nodes
-            .filter((node) => isDue(node.nextReviewAt, now))
-            .slice(0, MAX_CARDS)
-        : [];
-    const nodes = matched.length > 0 ? matched : fallback;
+    // 优先在 activeDoc 里匹配；没匹配到就退回到全 docs 的到期/临近节点
+    const matched = activeDoc ? matchReviewNodes(activeDoc, query, MAX_CARDS) : [];
+    const fallbackNodes = collectDueNodesFromDocs(docs, now).slice(0, MAX_CARDS).map((i) => i.node);
+    const nodes = matched.length > 0 ? matched : fallbackNodes;
     const batchId = nextKey('batch');
     const note =
       nodes.length === 0
-        ? `没有在「${activeDoc.title}」里找到与「${query}」相关的知识点，换个说法再试试。`
+        ? '没有找到相关的知识点。'
         : matched.length > 0
-          ? `找到 ${nodes.length} 个相关知识点，已生成卡片。先自己回答，再对照原文。`
-          : `没有直接匹配的知识点，先用今天到期的 ${nodes.length} 个节点开始。`;
+          ? `在「${activeDoc?.title}」找到 ${nodes.length} 个相关知识点，已生成卡片。先自己回答，再对照原文。`
+          : `没有直接匹配的，先给你今天到期/临近的 ${nodes.length} 个节点。`;
 
     setBatches((prev) => [
       ...prev,
@@ -173,6 +169,9 @@ export function ReviewPage() {
     const key = `${batchId}:${node.id}`;
     const state = cards[key] ?? EMPTY_CARD;
     const status = statusOf(node, now);
+    const item = nodeMap.get(node.id);
+    const sourceText = item?.text ?? '';
+    const docTitle = item?.docTitle ?? '';
     return (
       <article
         key={key}
@@ -182,6 +181,7 @@ export function ReviewPage() {
         <header className="review-qcard__head">
           <span className="review-qcard__label">
             问题 {String(navIndex.get(key) ?? 1).padStart(2, '0')} · {node.title}
+            {docTitle && <em className="review-qcard__doc">来自《{docTitle}》</em>}
           </span>
           <span className="review-qcard__status">
             <i className="status-dot" data-status={status} aria-hidden="true" />
@@ -210,14 +210,14 @@ export function ReviewPage() {
                 <span className="source-text" style={{ fontSize: 11.5 }}>
                   {node.quoteStart >= 0 ? (
                     <>
-                      {(activeDoc?.text ?? '').slice(0, node.quoteStart)}
+                      {sourceText.slice(0, node.quoteStart)}
                       <mark className="source-mark">
-                        {(activeDoc?.text ?? '').slice(node.quoteStart, node.quoteEnd)}
+                        {sourceText.slice(node.quoteStart, node.quoteEnd)}
                       </mark>
-                      {(activeDoc?.text ?? '').slice(node.quoteEnd)}
+                      {sourceText.slice(node.quoteEnd)}
                     </>
                   ) : (
-                    activeDoc?.text ?? ''
+                    sourceText
                   )}
                 </span>
               </div>
@@ -232,10 +232,9 @@ export function ReviewPage() {
                     className="grade-button"
                     data-grade={value}
                     onClick={() => {
-                      if (!activeDoc) {
-                        return;
-                      }
-                      reviewNode(activeDoc.id, node.id, value);
+                      const owner = nodeMap.get(node.id);
+                      if (!owner) return;
+                      reviewNode(owner.docId, node.id, value);
                       updateCard(key, { grade: value, revealed: true });
                     }}
                   >
@@ -278,11 +277,9 @@ export function ReviewPage() {
           <strong>AI 复习助手</strong>
         </div>
         <span className="review-page__meta">
-          {activeDoc
-            ? navCards.length > 0
-              ? `${gradedCount}/${navCards.length} 已完成`
-              : '等待生成卡片'
-            : '暂无材料'}
+          {navCards.length > 0
+            ? `${gradedCount}/${navCards.length} 已完成`
+            : '等待生成卡片'}
         </span>
       </header>
 
@@ -317,7 +314,7 @@ export function ReviewPage() {
             );
           })}
           {navCards.length === 0 && (
-            <span className="review-nav__empty">写下知识点后，生成的卡片会出现在这里</span>
+            <span className="review-nav__empty">暂无到期或临近的节点。继续探索材料吧。</span>
           )}
         </div>
       </nav>
@@ -326,9 +323,7 @@ export function ReviewPage() {
         {batches.length === 0 && (
           <div className="assistant-chat__empty">
             <p>
-              {activeDoc
-                ? `写下你想复习的知识点，我会在「${activeDoc.title}」里找到对应节点，生成可以自测的卡片。`
-                : '还没有可复习的材料，先新建一段材料吧。'}
+              暂时没有到期或临近复习的节点。你可以继续探索材料，或把时间拨到三天后看看。
             </p>
             <div className="assistant-chat__hints">
               {(activeDoc?.nodes ?? []).slice(0, 3).map((node) => (
@@ -351,8 +346,8 @@ export function ReviewPage() {
               <span className="assistant-chat__bubble-text">{batch.note}</span>
             </div>
             {batch.nodeIds.map((nodeId) => {
-              const node = nodeById.get(nodeId);
-              return node ? renderCard(batch.id, node) : null;
+              const item = nodeMap.get(nodeId);
+              return item ? renderCard(batch.id, item.node) : null;
             })}
           </div>
         ))}
@@ -383,7 +378,7 @@ export function ReviewPage() {
         <button
           type="submit"
           className="assistant-chat__send"
-          disabled={!activeDoc || !input.trim()}
+          disabled={!input.trim()}
           aria-label="生成题目卡片"
         >
           <ArrowUp size={15} />

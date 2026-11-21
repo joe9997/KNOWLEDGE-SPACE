@@ -4,7 +4,7 @@ import { OrbitMark } from '../components/OrbitMark';
 import { TimeTravel } from '../components/TimeTravel';
 import { LiquidButton } from '../components/ui/LiquidButton';
 import { countRelations } from '../lib/exportMarkdown';
-import { isDue, STATUS_LABEL, statusOf } from '../lib/review';
+import { isDue, isSoon, STATUS_LABEL, statusOf } from '../lib/review';
 import { useApp } from '../state/AppStore';
 
 interface HomePageProps {
@@ -25,13 +25,18 @@ export function HomePage({
   const { activeDoc, now, docs } = useApp();
 
   const dueNodes = useMemo(() => {
-    if (!activeDoc) {
-      return [];
+    const out: Array<{ docId: string; node: typeof docs[number]['nodes'][number] }> = [];
+    for (const doc of docs) {
+      for (const node of doc.nodes) {
+        if (node.mastery === 2) continue;
+        if (isDue(node.nextReviewAt, now) || isSoon(node.nextReviewAt, now, 3)) {
+          out.push({ docId: doc.id, node });
+        }
+      }
     }
-    return activeDoc.nodes
-      .filter((node) => isDue(node.nextReviewAt, now))
-      .sort((a, b) => a.nextReviewAt - b.nextReviewAt);
-  }, [activeDoc, now]);
+    out.sort((a, b) => a.node.nextReviewAt - b.node.nextReviewAt);
+    return out;
+  }, [docs, now]);
 
   const traceable = activeDoc
     ? activeDoc.nodes.filter((node) => node.quoteStart >= 0).length
@@ -150,20 +155,25 @@ export function HomePage({
           </div>
 
           <ul className="review-list">
-            {dueNodes.slice(0, 3).map((node) => (
-              <li className="review-list__item" key={node.id}>
-                <i
-                  className="status-dot"
-                  data-status={statusOf(node, now)}
-                  aria-hidden="true"
-                />
-                <span>{node.title}</span>
-                <small>{STATUS_LABEL[statusOf(node, now)]}</small>
-              </li>
-            ))}
+            {dueNodes.slice(0, 3).map(({ node, docId }) => {
+              const doc = docs.find((d) => d.id === docId);
+              const status = statusOf(node, now);
+              return (
+                <li className="review-list__item" key={`${docId}:${node.id}`}>
+                  <i
+                    className="status-dot"
+                    data-status={status}
+                    aria-hidden="true"
+                  />
+                  <span>{node.title}</span>
+                  {doc?.title && <small className="review-list__doc">来自《{doc.title}》</small>}
+                  <small>{STATUS_LABEL[status]}</small>
+                </li>
+              );
+            })}
             {dueNodes.length === 0 && (
               <li className="review-empty">
-                今天没有到期的节点。
+                今天没有到期或临近的节点。
                 <br />
                 可以继续探索材料，或把时间拨到三天后看看。
               </li>
@@ -179,7 +189,7 @@ export function HomePage({
             <button
               type="button"
               className="glass-button"
-              onClick={() => onStartReview(dueNodes.map((node) => node.id))}
+              onClick={() => onStartReview(dueNodes.map((item) => item.node.id))}
               disabled={dueNodes.length === 0}
             >
               逐个复习

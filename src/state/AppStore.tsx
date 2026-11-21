@@ -80,6 +80,7 @@ interface AppContextValue {
   addAnnotation: (docId: string, input: { start: number; end: number; note: string }) => void;
   removeAnnotation: (docId: string, annotationId: string) => void;
   reviewNode: (docId: string, nodeId: string, grade: ReviewGrade) => void;
+  updateNodeExplanations: (docId: string, explanations: Record<string, string>) => void;
   resetDemo: () => string;
   updateApiConfig: (config: ApiConfig | null) => void;
   login: (identifier: string, password: string) => Promise<void>;
@@ -419,6 +420,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [offsetDays, learningPrefs],
   );
 
+  /** 后台用 AI 批量给节点补 explanation；不阻塞 UI，失败静默。 */
+  const updateNodeExplanations = useCallback(
+    (docId: string, explanations: Record<string, string>) => {
+      const entries = Object.entries(explanations).filter(([, exp]) => exp && exp.trim());
+      if (entries.length === 0) {
+        return;
+      }
+      setDocs((prev) =>
+        prev.map((doc) => {
+          if (doc.id !== docId) {
+            return doc;
+          }
+          const patch = new Map(entries);
+          let touched = false;
+          const nodes = doc.nodes.map((node) => {
+            const exp = patch.get(node.id);
+            if (!exp || node.explanation === exp) {
+              return node;
+            }
+            touched = true;
+            return { ...node, explanation: exp };
+          });
+          if (!touched) {
+            return doc;
+          }
+          return { ...doc, nodes, updatedAt: Date.now() };
+        }),
+      );
+    },
+    [],
+  );
+
   const updateLearningPrefs = useCallback(
     (patch: Partial<LearningPrefs>) => {
       setLearningPrefs((prev) => {
@@ -488,6 +521,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addAnnotation,
       removeAnnotation,
       reviewNode,
+      updateNodeExplanations,
       resetDemo,
       updateApiConfig,
       login,
@@ -520,6 +554,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addAnnotation,
       removeAnnotation,
       reviewNode,
+      updateNodeExplanations,
       resetDemo,
       updateApiConfig,
       login,

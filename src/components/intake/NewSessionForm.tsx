@@ -20,8 +20,8 @@ import {
   fileNameToTitle,
   FILE_ACCEPT,
 } from '../../lib/fileText';
-import { extractWithAI, type ExtractionProgress } from '../../lib/llm';
-import { extractWithServer } from '../../lib/serverAi';
+import { extractWithAI, validateApiConfig, type ExtractionProgress } from '../../lib/llm';
+import { extractWithServer, elaborateNodesWithServer } from '../../lib/serverAi';
 import { useApp } from '../../state/AppStore';
 
 const MAX_CHARS = 1_000_000;
@@ -32,7 +32,7 @@ interface NewSessionFormProps {
 }
 
 export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
-  const { apiReady, apiConfig, createDoc, serverAi, aiReady } = useApp();
+  const { apiReady, apiConfig, createDoc, serverAi, aiReady, updateNodeExplanations } = useApp();
   const viaServer = serverAi?.available === true;
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
@@ -156,16 +156,43 @@ export function NewSessionForm({ onCreated, onOpenApi }: NewSessionFormProps) {
         throw new Error('模型返回了内容，但没有可用的节点。');
       }
       const meta = buildDocMeta(text);
-      onCreated(
-        createDoc({
-          title: title || deriveDocTitle(text),
-          subtitle: meta.subtitle,
-          summary: meta.summary,
-          text,
-          origin: 'ai',
-          nodes,
-        }),
-      );
+      const docId = createDoc({
+        title: title || deriveDocTitle(text),
+        subtitle: meta.subtitle,
+        summary: meta.summary,
+        text,
+        origin: 'ai',
+        nodes,
+      });
+      onCreated(docId);
+
+      // 后台自动给每个节点生成 AI 讲解，不阻塞跳转
+      // 服务端托管 AI 和浏览器自带 API Key 两种情况都触发
+      const effectiveConfig = viaServer
+        ? null
+        : apiConfig && validateApiConfig(apiConfig).ok
+          ? { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model }
+          : null;
+      if (viaServer || effectiveConfig) {
+        void (async () => {
+          try {
+            const elaborations = await elaborateNodesWithServer(
+              nodes.map((node) => ({
+                id: node.id,
+                title: node.title,
+                quote: node.quote,
+              })),
+              text,
+              effectiveConfig,
+            );
+            if (Object.keys(elaborations).length > 0) {
+              updateNodeExplanations(docId, elaborations);
+            }
+          } catch {
+            // 后台失败静默，用户已经拿到节点了，只是没有 AI 讲解
+          }
+        })();
+      }
     } catch (caught) {
       if (controller.signal.aborted) {
         return;

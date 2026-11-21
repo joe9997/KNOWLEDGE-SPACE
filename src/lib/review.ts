@@ -1,4 +1,4 @@
-import type { Mastery, NodeStatus, ReviewGrade } from './types';
+import type { KnowledgeNode, Mastery, NodeStatus, ReviewGrade } from './types';
 
 export const DAY_MS = 86_400_000;
 
@@ -50,10 +50,34 @@ export function scheduleReview(
   };
 }
 
+/** 是否已到期 / 过期 */
 export function isDue(nextReviewAt: number, now: number): boolean {
   return nextReviewAt <= now;
 }
 
+/**
+ * 是否临近到期（剩余 ≤ windowDays 天）。默认窗口 3 天。
+ * 用于"黄色"状态：时间充裕(scheduled) → 临近(soon) → 过期(due)。
+ */
+export function isSoon(nextReviewAt: number, now: number, windowDays = 3): boolean {
+  if (isDue(nextReviewAt, now)) return false;
+  const diffDays = (nextReviewAt - now) / DAY_MS;
+  return diffDays <= windowDays;
+}
+
+/** 距下次复习还剩多少天（向上取整，负数表示已过期多少天） */
+export function daysUntil(nextReviewAt: number, now: number): number {
+  return Math.ceil((nextReviewAt - now) / DAY_MS);
+}
+
+/**
+ * 三档动态状态：按"剩余天数 + 掌握程度"决定颜色。
+ *   'due'       已过期 → 红
+ *   'soon'      剩余 1-3 天 → 黄
+ *   'scheduled' 剩余 4+ 天 → 绿
+ *   'mastered'  mastery=2 → 完成灰
+ *   'fuzzy'     兜底（旧数据没 nextReviewAt）
+ */
 export function statusOf(
   node: { mastery: Mastery; nextReviewAt: number },
   now: number,
@@ -61,11 +85,23 @@ export function statusOf(
   if (isDue(node.nextReviewAt, now)) {
     return 'due';
   }
-  return node.mastery === 2 ? 'mastered' : 'fuzzy';
+  if (node.mastery === 2) {
+    return 'mastered';
+  }
+  if (isSoon(node.nextReviewAt, now, 3)) {
+    return 'soon';
+  }
+  // 有明确 nextReviewAt 且还远 → 已安排
+  if (Number.isFinite(node.nextReviewAt) && node.nextReviewAt > 0) {
+    return 'scheduled';
+  }
+  return 'fuzzy';
 }
 
 export const STATUS_LABEL: Record<NodeStatus, string> = {
-  due: '待复习',
+  due: '已过期',
+  soon: '临近复习',
+  scheduled: '已安排',
   fuzzy: '模糊',
   mastered: '已掌握',
 };
@@ -79,11 +115,33 @@ export const GRADE_LABEL: Record<ReviewGrade, string> = {
 export function formatRelativeDue(nextReviewAt: number, now: number): string {
   const diff = nextReviewAt - now;
   if (diff <= 0) {
-    return '已到期';
+    const overDays = Math.ceil(-diff / DAY_MS);
+    return overDays <= 1 ? '今天到期' : `已过期 ${overDays} 天`;
   }
   const days = Math.ceil(diff / DAY_MS);
   if (days <= 1) {
     return '今天稍后';
   }
   return `${days} 天后`;
+}
+
+/** 跨所有 docs 收集今日该复习的节点，按紧急度（过期优先 → 临近优先）排序 */
+export function collectDueNodesFromDocs(
+  docs: Array<{ id: string; nodes: Array<KnowledgeNode> }>,
+  now: number,
+): Array<{ docId: string; docTitle: string; node: KnowledgeNode }> {
+  const out: Array<{ docId: string; docTitle: string; node: KnowledgeNode }> = [];
+  for (const doc of docs) {
+    for (const node of doc.nodes) {
+      if (node.mastery === 2) continue;
+      if (isDue(node.nextReviewAt, now) || isSoon(node.nextReviewAt, now, 3)) {
+        out.push({ docId: doc.id, docTitle: (doc as { title?: string }).title ?? doc.id, node });
+      }
+    }
+  }
+  out.sort((a, b) => {
+    // 过期优先（越小越靠前），然后临近
+    return a.node.nextReviewAt - b.node.nextReviewAt;
+  });
+  return out;
 }

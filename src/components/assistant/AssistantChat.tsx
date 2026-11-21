@@ -7,6 +7,7 @@ import { detectFileKind, extractFileText, FILE_ACCEPT } from '../../lib/fileText
 import { useApp } from '../../state/AppStore';
 import {
   buildAutoStudyBrief,
+  buildHubStudyBrief,
   buildKnowledgeContext,
   buildLocalAssistantReply,
   requestAssistantReplyStream,
@@ -273,7 +274,7 @@ export function AssistantChat({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 侧栏入口开空白全局会话；图谱页入口自动总结 + 出题
+  // 侧栏入口（hub）跨所有 docs 自动总结；图谱页入口（doc）针对当前材料自动总结
   const seededSession = useRef<number | null>(null);
   useEffect(() => {
     if (variant !== 'page' || !open || sessionToken === undefined) {
@@ -286,10 +287,10 @@ export function AssistantChat({
       return;
     }
     seededSession.current = sessionToken;
-    const brief = mode === 'doc' ? buildAutoStudyBrief(doc) : null;
+    const brief = mode === 'doc' ? buildAutoStudyBrief(doc) : buildHubStudyBrief(docs);
     setMessages(brief ? [{ role: 'assistant', content: brief }] : []);
     setError(null);
-  }, [sessionToken, open, variant, mode, doc]);
+  }, [sessionToken, open, variant, mode, doc, docs]);
 
   // 流式输出期间不落盘，等这一轮结束再写入最近 15 条
   useEffect(() => {
@@ -649,8 +650,10 @@ export function AssistantChat({
         <div className="assistant-chat__quickbar">
           {[
             { label: '总结要点', prompt: '总结这份材料，列出最重要的 5 个要点' },
+            { label: '逐个讲解', prompt: '请逐个讲解这份材料里的所有知识点，每个知识点先给一句话总结，再把原文引用里的重点词展开解释' },
             { label: '个性化复习', prompt: '根据我现在的掌握情况，帮我安排今天的复习顺序' },
             { label: '出 5 道题', prompt: '基于这份材料出 5 道自测题，先给题目再给答案' },
+            { label: '诊断薄弱', prompt: '帮我诊断这份材料的薄弱点，优先补缺' },
           ].map((action) => (
             <button
               key={action.label}
@@ -666,6 +669,28 @@ export function AssistantChat({
               开始自测
             </button>
           )}
+        </div>
+      )}
+
+      {variant === 'page' && mode === 'hub' && docs.length > 0 && (
+        <div className="assistant-chat__quickbar">
+          {[
+            { label: '总结全部会话', prompt: '帮我总结全部会话，列出每个会话最核心的 2-3 个要点' },
+            { label: '逐个讲解', prompt: '从所有会话里挑出最关键的 8 个知识点，逐个详细讲解' },
+            { label: '全局薄弱诊断', prompt: '诊断我所有会话的薄弱点，优先补缺' },
+            { label: '安排今日复习', prompt: '根据我全部会话的到期和掌握情况，安排今天的复习顺序' },
+            { label: '跨会话出题', prompt: '从不同会话各挑一题，出 5 道跨会话自测题' },
+            { label: '考前突击', prompt: '我要考前突击，给我 30 分钟跨会话冲刺计划' },
+          ].map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              disabled={loading}
+              onClick={() => void send(action.prompt)}
+            >
+              {action.label}
+            </button>
+          ))}
         </div>
       )}
 
