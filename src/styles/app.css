@@ -5487,6 +5487,48 @@ ul {
   color: var(--text-faint);
 }
 
+/* 纯静态部署（无后端）时的提示与本地模式入口 */
+.auth-offline {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  background: color-mix(in srgb, var(--node-root-mid) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--node-root-mid) 32%, transparent);
+}
+
+.auth-local {
+  margin-top: 14px;
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text-soft) 28%, transparent);
+  background: color-mix(in srgb, var(--surface-2, #1a2233) 72%, transparent);
+  color: var(--text-soft);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.auth-local:hover:not(:disabled) {
+  color: var(--text-strong);
+  border-color: color-mix(in srgb, var(--node-root-mid) 55%, transparent);
+}
+
+.auth-local:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-local.is-primary {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(120deg, var(--node-root-mid), var(--node-root-edge));
+}
+
 /* ---------- 设置页 ---------- */
 .settings-page {
   width: 100%;

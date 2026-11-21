@@ -8,7 +8,7 @@ import { passkeySupported } from '../../lib/auth';
 type Mode = 'login' | 'register';
 
 export function AuthModal() {
-  const { login, register, loginWithPasskey } = useApp();
+  const { login, register, loginWithPasskey, backendAvailable, enterLocalMode } = useApp();
   const [mode, setMode] = useState<Mode>('login');
   const [identifier, setIdentifier] = useState('');
   const [email, setEmail] = useState('');
@@ -17,6 +17,7 @@ export function AuthModal() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const canPasskey = passkeySupported();
+  const offline = backendAvailable === false;
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -30,7 +31,12 @@ export function AuthModal() {
     try {
       await action();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const raw = cause instanceof Error ? cause.message : String(cause);
+      setError(
+        offline && /HTTP \d{3}/.test(raw)
+          ? '账号服务器未连接，请使用下方「本地模式」直接开始。'
+          : raw,
+      );
     } finally {
       setBusy(false);
     }
@@ -181,6 +187,21 @@ export function AuthModal() {
             </button>
           </form>
         )}
+
+        {offline && (
+          <p className="auth-offline">
+            当前是纯静态部署，账号服务器未连接。你可以直接用本地模式，数据保存在这台设备的浏览器里。
+          </p>
+        )}
+
+        <button
+          type="button"
+          className={`auth-local${offline ? ' is-primary' : ''}`}
+          disabled={busy}
+          onClick={enterLocalMode}
+        >
+          不登录，用本地模式
+        </button>
 
         <p className="auth-footnote">登录后即可使用，数据保存在你的账号下。</p>
       </div>
