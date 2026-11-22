@@ -71,6 +71,11 @@ export function buildKnowledgeContext(
     }
   }
 
+  lines.push(
+    '',
+    '【回答方式】把原文当作依据而不是稿子：不要整段照抄，用自己的话先讲清结论，再解释关键概念、原因以及它们之间的关系，让读者真正理解而不是复述。',
+  );
+
   return lines.join('\n').slice(0, MAX_CONTEXT_CHARS);
 }
 
@@ -97,12 +102,6 @@ function emphasizeQuote(text: string): string {
     return `**${clean}**`;
   }
   return `**${words.slice(0, 6).join(' ')}** ${words.slice(6).join(' ')}`;
-}
-
-/** 把例句里的目标单词加粗 */
-function boldWord(sentence: string, word: string): string {
-  const re = new RegExp(`\\b(${escapeRegExp(word)})\\b`, 'i');
-  return re.test(sentence) ? sentence.replace(re, '**$1**') : sentence;
 }
 
 function requestBody(
@@ -277,21 +276,48 @@ export function buildLocalAssistantReply(
     !wantsSkill && /复习|计划|安排|掌握|个性化|学习顺序|plan|review/i.test(prompt);
   const wantsSummary = /总结|摘要|概括|要点|梳理|summary/i.test(prompt);
 
+  // 神经中枢：只要提到全部/跨会话/全局，就用所有材料一起回答
+  const library = docs.length > 0 ? docs : doc ? [doc] : [];
+  const hubIntent = /所有会话|全部会话|所有材料|全部材料|跨会话|全局|知识库|神经中枢/.test(prompt);
+
+  if (/逐个讲解|逐条讲解|一个个讲|详细讲解/.test(prompt)) {
+    const walkthrough = hubIntent || library.length > 1
+      ? buildHubWalkthrough(library)
+      : buildDocWalkthrough(doc);
+    if (walkthrough) return walkthrough;
+  }
+
+  if (hubIntent && (wantsSummary || wantsPlan || wantsSkill || wantsQuiz)) {
+    const brief = buildHubStudyBrief(library);
+    if (brief) return brief;
+  }
+
   if (doc && nodes.length > 0 && wantsQuiz) {
-    const picked = nodes.filter((node) => node.quote).slice(0, 5);
+    const picked = nodes
+      .filter((node) => node.quote && node.quote.length > 30 && node.question)
+      .sort((a, b) => (b.quote?.length ?? 0) - (a.quote?.length ?? 0))
+      .slice(0, 5);
     if (picked.length === 0) {
       return null;
     }
-    return [
-      `本地出题 · 未调用模型（《${doc.title}》共 ${nodes.length} 个要点）`,
-      '',
-      ...picked.map(
-        (node, index) =>
-          `${index + 1}. ${node.question}\n   参考答案：${clip(node.quote, 90)}`,
-      ),
-      '',
-      '想要选择题版本，可以在知识网络里点「题库」。',
-    ].join('\n');
+    const lines: string[] = [
+      `📝 自测 ${picked.length} 题 · 来自《${doc.title}》`,
+      '先自己作答，再对照参考答案。每题都附思路提示和解析。',
+    ];
+    picked.forEach((node, index) => {
+      lines.push('', `${index + 1}. ${node.question}`);
+      lines.push(`   💭 思路：先回忆「${node.title}」的核心，再用自己的话组织答案`);
+      lines.push(`   ✅ 参考答案：${buildNodeExplanation(node, 140)}`);
+      if (node.quoteStart >= 0) {
+        lines.push(`   📖 出处：《${doc.title}》原文第 ${node.quoteStart + 1} 字附近`);
+      }
+      const why = buildAnswerAnalysis(node);
+      if (why) {
+        lines.push(`   🔍 解析：${why}`);
+      }
+    });
+    lines.push('', '想要选择题版本，可以在知识网络里点「题库」。');
+    return lines.join('\n');
   }
 
   if (doc && nodes.length > 0 && wantsPlan) {
@@ -317,21 +343,40 @@ export function buildLocalAssistantReply(
   }
 
   if (doc && nodes.length > 0 && wantsSummary) {
-    const top = nodes.slice(0, 5);
-    return [
-      '本地总结 · 未调用模型',
-      `主题：${doc.subtitle || doc.title}`,
+    // 按主题分组展示，每个概念给核心 + 关键细节，而不是机械罗列
+    const groups = groupByRootTheme(doc);
+    const lines: string[] = [
+      `📚 《${doc.title}》· 核心总结`,
+      doc.subtitle ? `主题：${doc.subtitle}` : '',
       doc.summary ? `摘要：${doc.summary}` : '',
-      top.length > 0
-        ? `关键要点：\n${top.map((node, index) => `${index + 1}. **${node.title}**`).join('\n')}`
-        : '',
-      '想深入某一点，可以继续问我。',
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
+      '',
+      `共 ${nodes.length} 个核心概念，按主题分组如下：`,
+    ].filter(Boolean);
 
-  const library = docs.length > 0 ? docs : doc ? [doc] : [];
+    let index = 0;
+    const MAX = 6;
+    for (const [theme, groupNodes] of groups.entries()) {
+      if (index >= MAX) break;
+      const isSelf = theme.startsWith('__self__');
+      if (!isSelf) {
+        lines.push('', `▸ ${theme}`);
+      }
+      for (const node of groupNodes.slice(0, isSelf ? 1 : 3)) {
+        if (index >= MAX) break;
+        index += 1;
+        lines.push(`${index}. **${node.title}**`);
+        const key = node.quote ? pickKeySentence(node.quote, 90) : '';
+        if (key) {
+          lines.push(`   ${emphasizeQuote(key)}`);
+        }
+      }
+    }
+    if (nodes.length > MAX) {
+      lines.push('', `（还有 ${nodes.length - MAX} 个概念，可逐个问我）`);
+    }
+    lines.push('', '想深入某一点，直接问我「什么是 XXX」；想检验理解，说「出题考我」。');
+    return lines.join('\n');
+  }
 
   // 学习技能：闪卡 / 诊断 / 考前突击（都基于已整理的要点，本地生成）
   if (doc && /闪卡|卡片|anki|flashcard/i.test(prompt)) {
@@ -341,7 +386,7 @@ export function buildLocalAssistantReply(
       '',
       ...cards.map(
         (node, index) =>
-          `卡片 ${index + 1}\n正面：${node.question}\n背面：${clip(node.quote, 120)}`,
+          `卡片 ${index + 1}\n正面：${node.question}\n背面：${buildNodeExplanation(node, 120)}`,
       ),
       '',
       '可以按「正面 → 背面」的顺序做主动回忆，也可以复制到 Anki / Obsidian。',
@@ -363,7 +408,7 @@ export function buildLocalAssistantReply(
         : '目前没有明显缺口，可以做一轮混合自测巩固。',
       ...focus.map(
         (node, index) =>
-          `${index + 1}. **${node.title}**\n   ${emphasizeQuote(clip(node.quote, 120))}\n   自测：${node.question}`,
+          `${index + 1}. **${node.title}**\n   ${buildNodeExplanation(node, 120)}\n   自测：${node.question}`,
       ),
       '',
       '方法：先看讲解 → 合上原文自己复述 → 卡住就回到原文定位。',
@@ -386,7 +431,7 @@ export function buildLocalAssistantReply(
       '',
       ...risk.map(
         (node, index) =>
-          `${index + 1}. **${node.title}**\n   ${emphasizeQuote(clip(node.quote, 120))}\n   自测：${node.question}`,
+          `${index + 1}. **${node.title}**\n   ${buildNodeExplanation(node, 120)}\n   自测：${node.question}`,
       ),
       '',
       '需要闪卡或错题版，直接说「生成闪卡」「诊断薄弱点」。',
@@ -417,7 +462,7 @@ export function buildLocalAssistantReply(
       `命中 ${hits.length} 条相关要点：`,
       ...hits.map(
         (hit, index) =>
-          `${index + 1}. 《${hit.docTitle}》${hit.nodeTitle}\n   ${clip(hit.quote, 120)}`,
+          `${index + 1}. 《${hit.docTitle}》${hit.nodeTitle}\n   ${toExplanationTone(clip(hit.quote, 120))}`,
       ),
       '配置模型后可以继续追问更完整的解释。',
     ].join('\n');
@@ -483,94 +528,6 @@ export function searchKnowledge(
   return hits.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
-interface VocabEntry {
-  word: string;
-  phonetic: string;
-  pos: string;
-  meaning: string;
-}
-
-const VOCAB_ENTRY =
-  /^([A-Za-z][A-Za-z'\- ]{0,28}?)\s*(?:\/([^/\n]{1,40})\/)?\s*(v|n|adj|adv|prep|conj|pron|phr)\.\s*(.{1,80})$/i;
-
-/** 从笔记里识别单词条目（word /音标/ 词性. 释义），用于把例句升级成真正的讲解 */
-function parseVocab(text: string): Map<string, VocabEntry> {
-  const entries = new Map<string, VocabEntry>();
-  for (const raw of text.split('\n').slice(0, 400)) {
-    const line = raw.trim();
-    if (!line || line.length > 120) {
-      continue;
-    }
-    const match = line.match(VOCAB_ENTRY);
-    if (!match) {
-      continue;
-    }
-    const word = match[1].trim().toLowerCase();
-    if (!word || word.split(/\s+/).length > 3) {
-      continue;
-    }
-    entries.set(word, {
-      word,
-      phonetic: match[2] ? `/${match[2]}/` : '',
-      pos: match[3],
-      meaning: match[4].trim(),
-    });
-  }
-  return entries;
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function editDistance(a: string, b: string): number {
-  const rows = a.length + 1;
-  const cols = b.length + 1;
-  const dp: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
-  for (let i = 0; i < rows; i += 1) dp[i][0] = i;
-  for (let j = 0; j < cols; j += 1) dp[0][j] = j;
-  for (let i = 1; i < rows; i += 1) {
-    for (let j = 1; j < cols; j += 1) {
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
-    }
-  }
-  return dp[rows - 1][cols - 1];
-}
-
-function findVocabEntry(node: KnowledgeDoc['nodes'][number], entries: Map<string, VocabEntry>) {
-  const haystack = `${node.title} ${node.quote}`.toLowerCase();
-  let best: VocabEntry | null = null;
-  for (const entry of entries.values()) {
-    if (new RegExp(`\\b${escapeRegExp(entry.word)}\\b`).test(haystack)) {
-      if (!best || entry.word.length > best.word.length) {
-        best = entry;
-      }
-    }
-  }
-  if (best) {
-    return best;
-  }
-  // 标题里的单词可能拼错（如 ascibe / ascribe），用编辑距离兜底
-  const tokens = node.title.toLowerCase().match(/[a-z]{5,}/g) ?? [];
-  let closest: { entry: VocabEntry; distance: number } | null = null;
-  for (const token of tokens) {
-    for (const entry of entries.values()) {
-      if (entry.word.includes(' ') || Math.abs(entry.word.length - token.length) > 2) {
-        continue;
-      }
-      const distance = editDistance(token, entry.word);
-      if (distance <= 2 && (!closest || distance < closest.distance)) {
-        closest = { entry, distance };
-      }
-    }
-  }
-  return closest?.entry ?? null;
-}
-
 /** 抽取单个 doc 的学习画像：到期、薄弱、已掌握 */
 function profileDoc(doc: KnowledgeDoc, now: number) {
   const due = doc.nodes.filter((node) => isDue(node.nextReviewAt, now));
@@ -580,55 +537,225 @@ function profileDoc(doc: KnowledgeDoc, now: number) {
   return { due, weak, fuzzy, mastered };
 }
 
-/** 给单个 doc 生成「薄弱诊断 + 复习安排」段落 */
-function renderLearningPlan(doc: KnowledgeDoc, now: number): string[] {
-  const { due, weak, fuzzy, mastered } = profileDoc(doc, now);
-  const risk = [...due, ...weak, ...fuzzy];
-  const lines = [
-    '',
-    `📊 学习诊断 · 《${doc.title}》`,
-    `到期 ${due.length} · 薄弱 ${weak.length} · 模糊 ${fuzzy.length} · 已掌握 ${mastered.length}`,
-  ];
-  if (risk.length === 0) {
-    lines.push('当前没有明显缺口，可以开始一轮混合自测巩固。');
-  } else {
-    lines.push(
-      '建议顺序：到期 → 薄弱 → 模糊，每轮 5 个，答错的下次优先：',
-      ...risk
-        .slice(0, 5)
-        .map((node, index) => `${index + 1}. **${node.title}**（${masteryLabel(node.mastery, node.nextReviewAt, now)}）`),
+/** 从 quote 里抽出最有信息量的 1 句（优先含定义/因果/数字的句子） */
+function pickKeySentence(quote: string, maxLen = 110): string {
+  const clean = quote.replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  if (clean.length <= maxLen) return clean;
+  // 按句子切分，给每句打分：含"是/因为/所以/称为/指/例如/即"的优先
+  const sentences = clean.split(/(?<=[。！？；.!?;])/).filter((s) => s.trim().length > 8);
+  if (sentences.length === 0) return `${clean.slice(0, maxLen)}…`;
+  const scored = sentences.map((s) => {
+    let score = 0;
+    if (/是指|指的是|称为|叫作|定义为|是一种|是一个/.test(s)) score += 5;
+    if (/因为|所以|因此|由于|导致/.test(s)) score += 4;
+    if (/例如|比如|举例/.test(s)) score += 3;
+    if (/\d+/.test(s)) score += 2;
+    if (/首先|其次|最后|第一|第二|第三/.test(s)) score += 2;
+    // 长度惩罚：太短没信息，太长不好读
+    if (s.length < 20) score -= 1;
+    if (s.length > 140) score -= 1;
+    return { s: s.trim(), score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0].s;
+  return best.length > maxLen ? `${best.slice(0, maxLen)}…` : best;
+}
+
+type KnowledgeKind = 'definition' | 'causal' | 'process' | 'example' | 'data' | 'argument';
+
+const KIND_HINT: Record<KnowledgeKind, string> = {
+  definition: '理解定义后，试着举一个能套用它的例子，知识才算真正落地。',
+  causal: '抓住"为什么会这样"这条因果链，比只记住结论更有用。',
+  process: '按步骤顺序复述一遍，注意每一步依赖前一步的什么结果。',
+  example: '先看这个例子在证明什么，再换一个自己的场景举出新例子。',
+  data: '把数字和它对应的含义绑在一起记，单记数字很容易忘。',
+  argument: '把它放回材料的整体论证里，想清楚它支撑的是哪个结论。',
+};
+
+function detectKnowledgeKind(node: KnowledgeDoc['nodes'][number]): KnowledgeKind {
+  const text = `${node.title} ${node.quote}`;
+  if (/是指|指的是|称为|叫作|定义为|是一种|是一个/.test(text)) return 'definition';
+  if (/因为|所以|因此|由于|导致/.test(text)) return 'causal';
+  if (/首先|其次|最后|第一|第二|步骤|阶段|流程/.test(text)) return 'process';
+  if (/例如|比如|举例|譬如/.test(text)) return 'example';
+  if (/\d+%|\d+倍|\d+个|\d+年|\d+次/.test(text)) return 'data';
+  return 'argument';
+}
+
+/** 把原文句子改写成讲解口吻，避免整句照搬 */
+function toExplanationTone(text: string): string {
+  return text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(首先|其次|再次|最后|另外|此外|因此|所以|但是|然而|不过|而且|并且|同时)[，,]\s*/, '')
+    .replace(/是指|指的是/g, '可以理解为')
+    .replace(/称为|叫作|定义为/g, '被称为')
+    .replace(/是一种|是一个/g, '本质上是一种')
+    .replace(/由于/g, '因为')
+    .trim();
+}
+
+/**
+ * 生成便于理解的"参考答案"：优先用 AI 扩写，其次把关键句改写成讲解口吻，
+ * 再补一句理解方向，避免把原文整句当成答案。
+ */
+export function buildNodeExplanation(
+  node: KnowledgeDoc['nodes'][number],
+  maxLen = 180,
+): string {
+  const expanded = node.explanation?.replace(/^\*\*[^*]+\*\* 的要点：\n?/, '').trim();
+  if (expanded) {
+    return clip(expanded, Math.max(maxLen, 220));
+  }
+  const key = node.quote ? pickKeySentence(node.quote, 110) : '';
+  if (!key) {
+    return `围绕「${node.title}」理解：先弄清它解决什么问题，再想它和相邻概念的关系。`;
+  }
+  return `${toExplanationTone(key)} ${KIND_HINT[detectKnowledgeKind(node)]}`;
+}
+
+/** 给节点生成一句"记忆钩子"：根据标题和引用内容选择不同的记忆策略 */
+function buildMemoryHook(node: KnowledgeDoc['nodes'][number]): string {
+  const title = node.title;
+  const quote = node.quote || '';
+  // 对比型
+  if (/与|和|vs|区别|对比|比较/.test(title)) {
+    return '💡 试着用自己的话说出两者的关键区别';
+  }
+  // 流程型
+  if (/流程|步骤|过程|阶段|顺序/.test(title + quote)) {
+    return '💡 在脑子里把这个流程走一遍，注意每一步的输入输出';
+  }
+  // 定义型
+  if (/是指|指的是|称为|是一种|定义为/.test(quote)) {
+    return '💡 合上书，用一句话向朋友解释这个概念';
+  }
+  // 数字/公式型
+  if (/\d+%|\d+倍|\d+个|公式|方程/.test(quote)) {
+    return '💡 记住关键数字，再想一个生活中的对应例子';
+  }
+  // 因果型
+  if (/因为|所以|导致|因此|由于/.test(quote)) {
+    return '💡 问自己：如果条件反过来，结果会怎样？';
+  }
+  // 默认
+  return '💡 找一个生活/工作中的场景，把这个概念套进去';
+}
+
+/** 把 doc 的节点按顶层主题分组（用 parent 链向上找到 level 0 祖先） */
+function groupByRootTheme(doc: KnowledgeDoc): Map<string, KnowledgeDoc['nodes']> {
+  const byId = new Map(doc.nodes.map((n) => [n.id, n]));
+  const rootOf = (node: KnowledgeDoc['nodes'][number]): KnowledgeDoc['nodes'][number] => {
+    let cur = node;
+    let depth = 0;
+    while (cur.parentId && depth < 6) {
+      const parent = byId.get(cur.parentId);
+      if (!parent) break;
+      cur = parent;
+      depth += 1;
+    }
+    return cur;
+  };
+  const groups = new Map<string, KnowledgeDoc['nodes']>();
+  for (const node of doc.nodes) {
+    const root = rootOf(node);
+    const key = root.id === node.id ? `__self__${node.id}` : root.title;
+    const list = groups.get(key) ?? [];
+    list.push(node);
+    groups.set(key, list);
+  }
+  return groups;
+}
+
+interface VocabEntry {
+  word: string;
+  pos: string;
+  meaning: string;
+  example: string;
+}
+
+/** 识别「word /音标/ 词性 释义」格式的单词笔记，并抓取紧随其后的英文例句。 */
+function parseVocabEntries(text: string): VocabEntry[] {
+  const entries: VocabEntry[] = [];
+  let current: VocabEntry | null = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const match = line.match(
+      /^([A-Za-z][A-Za-z'-]*)\s+(?:\/[^/]+\/\s+)?((?:n|v|adj|adv|prep|conj|pron|num|int|phr)\.)\s*(.+)$/i,
     );
+    if (match) {
+      current = {
+        word: match[1].toLowerCase(),
+        pos: match[2],
+        meaning: match[3].trim(),
+        example: '',
+      };
+      entries.push(current);
+      continue;
+    }
+    if (
+      current &&
+      !current.example &&
+      /[A-Za-z]/.test(line) &&
+      !/[\u4e00-\u9fa5]/.test(line) &&
+      line.split(/\s+/).length >= 4
+    ) {
+      current.example = line;
+    }
+  }
+  return entries;
+}
+
+function vocabDistance(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const saved = row[j];
+      row[j] = Math.min(
+        row[j] + 1,
+        row[j - 1] + 1,
+        previous + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      previous = saved;
+    }
+  }
+  return row[b.length];
+}
+
+function firstEnglishToken(text: string): string {
+  return text.match(/[A-Za-z][A-Za-z'-]*/)?.[0].toLowerCase() ?? '';
+}
+
+/** 单词笔记在通用导览之外补充释义、原例句和节点标题中的拼写纠正。 */
+function buildVocabStudyLines(doc: KnowledgeDoc): string[] {
+  const entries = parseVocabEntries(doc.text);
+  if (entries.length === 0) return [];
+  const lines: string[] = ['', '单词精讲（释义 · 例句 · 拼写）'];
+  for (const [index, entry] of entries.slice(0, 6).entries()) {
+    lines.push(`${index + 1}. **${entry.word}** · ${entry.pos} ${entry.meaning}`);
+    if (entry.example) {
+      lines.push(`   例：${entry.example}`);
+    }
+    const matchedNode = doc.nodes.find((node) => {
+      const token = firstEnglishToken(node.title);
+      if (!token || token === entry.word || token[0] !== entry.word[0]) return false;
+      return vocabDistance(token, entry.word) <= (entry.word.length >= 7 ? 2 : 1);
+    });
+    if (matchedNode) {
+      const typo = firstEnglishToken(matchedNode.title);
+      lines.push(`   拼写提醒：「${typo}」应写作「${entry.word}」。`);
+    }
   }
   return lines;
 }
 
-function masteryLabel(mastery: number, nextReviewAt: number | null, now: number): string {
-  const tags: string[] = [];
-  if (nextReviewAt && isDue(nextReviewAt, now)) {
-    tags.push('今天到期');
-  }
-  tags.push(mastery === 0 ? '薄弱' : mastery === 1 ? '模糊' : '已掌握');
-  return tags.join(' · ');
-}
-
-/** 自动出题：从 doc 的节点里挑有 quote 的若干条 */
-function renderQuiz(doc: KnowledgeDoc, count = 5): string[] {
-  const picked = doc.nodes.filter((node) => node.quote).slice(0, count);
-  if (picked.length === 0) {
-    return [];
-  }
-  return [
-    '',
-    `📝 自测 ${picked.length} 题（答案在题后）：`,
-    ...picked.map(
-      (node, index) => `${index + 1}. ${node.question}\n   答案：${clip(node.quote, 90)}`,
-    ),
-  ];
-}
-
 /**
- * 只针对当前知识库的自动开场：总览 → 知识点 → 学习诊断 → 出题。
- * 用于图谱页头部的「AI 助手」按钮，打开即开始个性化学习。
+ * 只针对当前知识库的自动开场：总览 → 核心概念地图（按主题分组） → 学习路径 → 学习状态 → 高质量自测。
+ * 重写后的版本更像一个真正的"AI 助教"在带你预习这份材料。
  */
 export function buildAutoStudyBrief(doc: KnowledgeDoc | null): string | null {
   if (!doc || doc.nodes.length === 0) {
@@ -636,69 +763,149 @@ export function buildAutoStudyBrief(doc: KnowledgeDoc | null): string | null {
   }
   const now = Date.now();
   const { due, weak, fuzzy, mastered } = profileDoc(doc, now);
-  const byId = new Map(doc.nodes.map((node) => [node.id, node]));
-  const vocab = parseVocab(doc.text);
-  const childrenOf = new Map<string, string[]>();
-  for (const node of doc.nodes) {
-    if (!node.parentId) {
-      continue;
-    }
-    const list = childrenOf.get(node.parentId) ?? [];
-    list.push(node.title);
-    childrenOf.set(node.parentId, list);
-  }
 
-  const overview = [
-    `📚 当前知识库《${doc.title}》`,
-    doc.subtitle ? `主题：${doc.subtitle}` : '',
-    doc.summary ? `摘要：${doc.summary}` : '',
-    `规模：${doc.nodes.length} 个要点 · 今天到期 ${due.length} · 薄弱 ${weak.length} · 模糊 ${fuzzy.length} · 已掌握 ${mastered.length}`,
-  ].filter(Boolean);
-
-  const knowledgePoints = [
-    '',
-    `📍 知识点速览（共 ${doc.nodes.length} 个）：`,
-    ...doc.nodes.flatMap((node, index) => {
-      const lines = [`${index + 1}. **${node.title}**`];
-      const entry = vocab.size > 0 ? findVocabEntry(node, vocab) : null;
-      if (entry) {
-        lines.push(
-          `   **${entry.word}** ${entry.phonetic} ${entry.pos}. **${entry.meaning}**`
-            .replace(/\s+/g, ' ')
-            .trim(),
-        );
-        if (node.quote && !node.quote.includes(entry.meaning)) {
-          lines.push(`   例：${boldWord(clip(node.quote, 160), entry.word)}`);
-        }
-      } else if (node.quote) {
-        lines.push(`   ${emphasizeQuote(clip(node.quote, 240))}`);
-      } else if (node.explanation) {
-        // quote 缺失时，用本地合成的 explanation 作为讲解
-        const body = node.explanation.replace(/^\*\*[^*]+\*\* 的要点：\n?/, '').trim();
-        if (body) lines.push(`   ${clip(body, 240)}`);
-      }
-      const parent = node.parentId ? byId.get(node.parentId) : null;
-      const children = childrenOf.get(node.id) ?? [];
-      const structure = [
-        parent ? `属于「${parent.title}」` : '',
-        children.length > 0 ? `包含「${children.slice(0, 4).join('、')}」` : '',
-      ].filter(Boolean);
-      if (structure.length > 0) {
-        lines.push(`   ${structure.join('，')}`);
-      }
-      return lines;
-    }),
+  // ===== 1. 开场：一句话说清这份材料的价值 =====
+  const opening = [
+    `📚 《${doc.title}》· 学习导览`,
+    doc.subtitle ? `这份材料围绕「${doc.subtitle}」展开，共 ${doc.nodes.length} 个核心概念。` : `共 ${doc.nodes.length} 个核心概念，我已为你梳理好结构。`,
   ];
 
+  // ===== 2. 一句话概括（用 summary 或自动合成） =====
+  const overview: string[] = [];
+  if (doc.summary) {
+    overview.push('', '🎯 这份材料在讲什么', doc.summary);
+  } else {
+    // 没有 summary 时，用前 3 个 level 0 节点标题拼一个导览
+    const roots = doc.nodes.filter((n) => !n.parentId).slice(0, 3).map((n) => n.title);
+    if (roots.length > 0) {
+      overview.push('', '🎯 这份材料在讲什么', `主要覆盖 ${roots.join('、')} 等主题。建议先建立整体框架，再逐个深入。`);
+    }
+  }
+
+  // ===== 3. 核心概念地图：按主题分组，每个概念给"核心 + 关键细节 + 记忆钩子" =====
+  const groups = groupByRootTheme(doc);
+  const conceptLines: string[] = ['', '📍 核心概念地图'];
+  let conceptIndex = 0;
+  const MAX_CONCEPTS = 8; // 最多展示 8 个，避免信息过载
+
+  for (const [theme, nodes] of groups.entries()) {
+    if (conceptIndex >= MAX_CONCEPTS) break;
+    // 顶层主题（level 0 节点）作为分组标题
+    const isSelfGroup = theme.startsWith('__self__');
+    const themeName = isSelfGroup ? null : theme;
+    if (themeName) {
+      conceptLines.push('', `▸ ${themeName}`);
+    }
+    for (const node of nodes.slice(0, isSelfGroup ? 1 : 3)) {
+      if (conceptIndex >= MAX_CONCEPTS) break;
+      conceptIndex += 1;
+      conceptLines.push(`${conceptIndex}. **${node.title}**`);
+      // 关键细节：从 quote 里挑最有信息量的一句
+      const key = node.quote ? pickKeySentence(node.quote, 100) : '';
+      if (key) {
+        conceptLines.push(`   ${emphasizeQuote(key)}`);
+      } else if (node.explanation) {
+        const body = node.explanation.replace(/^\*\*[^*]+\*\* 的要点：\n?/, '').trim();
+        if (body) conceptLines.push(`   ${clip(body, 100)}`);
+      }
+      // 记忆钩子
+      conceptLines.push(`   ${buildMemoryHook(node)}`);
+    }
+  }
+  if (doc.nodes.length > MAX_CONCEPTS) {
+    conceptLines.push('', `（还有 ${doc.nodes.length - MAX_CONCEPTS} 个概念，可以在图谱里逐个查看）`);
+  }
+
+  // ===== 4. 推荐学习路径：按 level 分层，先基础后进阶 =====
+  const roots = doc.nodes.filter((n) => !n.parentId);
+  const leaves = doc.nodes.filter((n) => n.parentId && !doc.nodes.some((m) => m.parentId === n.id));
+  const pathLines: string[] = ['', '🧭 推荐学习路径'];
+  if (roots.length > 0) {
+    pathLines.push(`① 先建立框架：${roots.slice(0, 3).map((n) => `**${n.title}**`).join(' → ')}`);
+  }
+  if (leaves.length > 0 && leaves.length !== roots.length) {
+    pathLines.push(`② 再深入细节：重点攻克 ${leaves.slice(0, 3).map((n) => `**${n.title}**`).join('、')}`);
+  }
+  if (weak.length > 0) {
+    pathLines.push(`③ 最后补薄弱：${weak.slice(0, 2).map((n) => `**${n.title}**`).join('、')}（你之前标记为没记住）`);
+  }
+  pathLines.push('每学完一个，合上书自己复述一遍，卡壳就回到原文定位。');
+
+  // ===== 5. 你的学习状态 =====
+  const statusLines = [
+    '',
+    '📊 你的学习状态',
+    `已掌握 ${mastered.length} · 模糊 ${fuzzy.length} · 薄弱 ${weak.length} · 今天到期 ${due.length}`,
+  ];
+  if (due.length > 0) {
+    statusLines.push(`⚡ 优先复习：${due.slice(0, 3).map((n) => `**${n.title}**`).join('、')}`);
+  } else if (weak.length > 0) {
+    statusLines.push(`⚡ 优先补缺：${weak.slice(0, 3).map((n) => `**${n.title}**`).join('、')}`);
+  } else if (mastered.length === doc.nodes.length) {
+    statusLines.push('🎉 全部掌握！可以做一轮混合自测巩固。');
+  }
+
+  // ===== 6. 高质量自测：题目 + 思路提示 + 结构化答案 =====
+  const quizLines = renderQuizV2(doc, 3);
+
   return [
+    ...opening,
     ...overview,
-    ...knowledgePoints,
-    ...renderLearningPlan(doc, now),
-    ...renderQuiz(doc, 5),
+    ...buildVocabStudyLines(doc),
+    ...conceptLines,
+    ...pathLines,
+    ...statusLines,
+    ...quizLines,
   ]
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/** 高质量自测：题目 + 思路提示 + 结构化答案（核心要点 + 原文出处 + 解析） */
+function renderQuizV2(doc: KnowledgeDoc, count = 3): string[] {
+  // 优先选有 quote、有 question、内容充实的节点
+  const candidates = doc.nodes
+    .filter((n) => n.quote && n.quote.length > 30 && n.question)
+    .sort((a, b) => (b.quote?.length ?? 0) - (a.quote?.length ?? 0));
+  const picked = candidates.slice(0, count);
+  if (picked.length === 0) return [];
+
+  const lines: string[] = ['', `📝 自测 ${picked.length} 题（先自己答，再看答案）`];
+  picked.forEach((node, index) => {
+    lines.push('', `${index + 1}. ${node.question}`);
+    // 思路提示：给思考方向但不剧透答案
+    lines.push(`   💭 思路：先回忆「${node.title}」的核心，再用自己的话讲出来`);
+    // 讲解型答案：改写成自己的话，不照搬原文
+    lines.push(`   ✅ 参考答案：${buildNodeExplanation(node, 160)}`);
+    if (node.quoteStart >= 0) {
+      lines.push(`   📖 出处：《${doc.title}》原文第 ${node.quoteStart + 1} 字附近`);
+    }
+    // 解析：为什么这是答案
+    const why = buildAnswerAnalysis(node);
+    if (why) {
+      lines.push(`   🔍 解析：${why}`);
+    }
+  });
+  return lines;
+}
+
+/** 生成答案解析：解释"为什么这样理解"，帮助把知识点串起来 */
+export function buildAnswerAnalysis(node: KnowledgeDoc['nodes'][number]): string {
+  switch (detectKnowledgeKind(node)) {
+    case 'definition':
+      return '这是定义型知识点：先用自己的话讲清它是什么，再补一个例子，比背原句更牢固。';
+    case 'causal':
+      return '这是因果型知识点：重点理解"为什么会这样"，把原因和结果连成一条链。';
+    case 'example':
+      return '这是举例型知识点：先看例子在证明什么，再自己举一个新例子验证理解。';
+    case 'process':
+      return '这是流程型知识点：注意步骤之间的先后顺序和依赖关系，按流程走一遍。';
+    case 'data':
+      return '这是数据型知识点：记住关键数字，并说清它对应的含义和适用场景。';
+    default:
+      return '这是材料的核心论点之一：把它放回整体框架里，想清楚它支撑什么结论、和哪些概念相关。';
+  }
 }
 
 /**
@@ -756,25 +963,80 @@ export function buildHubStudyBrief(docs: KnowledgeDoc[]): string | null {
       ? '当前所有会话都没有明显缺口，可以挑一个做混合自测。'
       : rankedRisk.map((item, index) => {
           const { doc, node } = item;
-          return `${index + 1}. **${node.title}**（来自《${doc.title}》）\n   ${emphasizeQuote(clip(node.quote || node.question, 120))}`;
+          return `${index + 1}. **${node.title}**（来自《${doc.title}》）\n   ${buildNodeExplanation(node, 140)}`;
         }),
   ];
 
-  // 全局出题：从不同会话各挑 1 题
+  // 全局出题：从不同会话各挑 1 题，用高质量结构化答案
   const quiz: string[] = [];
   let idx = 0;
   for (const doc of nonEmpty) {
-    const pick = doc.nodes.find((n) => n.quote);
+    const pick = doc.nodes
+      .filter((n) => n.quote && n.quote.length > 30 && n.question)
+      .sort((a, b) => (b.quote?.length ?? 0) - (a.quote?.length ?? 0))[0];
     if (pick && idx < 5) {
-      quiz.push(`${idx + 1}. ${pick.question}（来自《${doc.title}》）\n   答案：${clip(pick.quote, 90)}`);
+      quiz.push(`${idx + 1}. ${pick.question}（来自《${doc.title}》）`);
+      quiz.push(`   💭 思路：先回忆「${pick.title}」的核心，再用自己的话讲出来`);
+      quiz.push(`   ✅ 参考答案：${buildNodeExplanation(pick, 160)}`);
+      const why = buildAnswerAnalysis(pick);
+      if (why) {
+        quiz.push(`   🔍 解析：${why}`);
+      }
       idx += 1;
     }
     if (idx >= 5) break;
   }
 
-  const quizSection = quiz.length > 0 ? ['', '📝 跨会话自测（5 题）：', ...quiz] : [];
+  const quizSection = quiz.length > 0 ? ['', '📝 跨会话自测（先自己答，再看答案）：', ...quiz] : [];
 
   return [...overview, ...summaries, ...diagnosis, ...quizSection].join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
+
+/** 针对单份材料的逐个讲解：用自己的话解释每个知识点，而不是复述原文 */
+function buildDocWalkthrough(doc: KnowledgeDoc | null): string | null {
+  const nodes = (doc?.nodes ?? []).filter((node) => node.quote).slice(0, 6);
+  if (!doc || nodes.length === 0) {
+    return null;
+  }
+  const lines = [
+    `🧭 逐个讲解 · 《${doc.title}》共 ${nodes.length} 个知识点`,
+    '下面是理解版讲解：原文只作依据，我用自己的话帮你把概念讲清楚。',
+  ];
+  nodes.forEach((node, index) => {
+    lines.push('', `${index + 1}. **${node.title}**`);
+    lines.push(`   ${buildNodeExplanation(node, 150)}`);
+    lines.push(`   💡 ${buildMemoryHook(node)}`);
+  });
+  return lines.join('\n');
+}
+
+/** 跨会话逐个讲解：每个会话挑几个关键知识点，用自己的话讲清楚 */
+function buildHubWalkthrough(docs: KnowledgeDoc[]): string | null {
+  const nonEmpty = docs.filter((doc) => doc.nodes.some((node) => node.quote));
+  if (nonEmpty.length === 0) {
+    return null;
+  }
+  const perDoc = Math.max(1, Math.min(3, Math.ceil(8 / nonEmpty.length)));
+  const picks: Array<{ doc: KnowledgeDoc; node: KnowledgeDoc['nodes'][number] }> = [];
+  for (const doc of nonEmpty) {
+    doc.nodes
+      .filter((node) => node.quote)
+      .slice(0, perDoc)
+      .forEach((node) => picks.push({ doc, node }));
+  }
+  if (picks.length === 0) {
+    return null;
+  }
+  const lines = [
+    `🧭 逐个讲解 · 跨 ${nonEmpty.length} 个会话，共 ${picks.length} 个关键知识点`,
+    '下面是理解版讲解：原文只作依据，我用自己的话帮你把概念讲清楚。',
+  ];
+  picks.slice(0, 8).forEach(({ doc, node }, index) => {
+    lines.push('', `${index + 1}. **${node.title}**（来自《${doc.title}》）`);
+    lines.push(`   ${buildNodeExplanation(node, 150)}`);
+  });
+  return lines.join('\n');
+}
+
 
 
