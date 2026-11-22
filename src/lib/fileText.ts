@@ -247,6 +247,25 @@ function slideXmlToText(xml: string): string {
   return text;
 }
 
+function slideToMarkedText(paragraphs: string[]): string {
+  const lines = paragraphs.map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) {
+    return '';
+  }
+  const first = lines[0];
+  const isPlaceholder = /^(添加标题|单击此处添加|单击此处编辑|点击此处添加)/.test(first);
+  const isTitle =
+    !isPlaceholder &&
+    first.length >= 4 &&
+    first.length <= 40 &&
+    !/[。！？；;]$/.test(first);
+  if (!isTitle) {
+    return lines.join('\n');
+  }
+  // 用 Markdown 二级标题标记每一页的标题，让本地整理能按页建立章节层级
+  return `## ${first}\n${lines.slice(1).join('\n')}`;
+}
+
 async function extractPptxText(file: File, maxChars: number): Promise<ExtractedFile> {
   const { unzipSync, strFromU8 } = await import('fflate');
   let entries: Record<string, Uint8Array>;
@@ -260,15 +279,21 @@ async function extractPptxText(file: File, maxChars: number): Promise<ExtractedF
   const slideNumber = (name: string) => Number(name.match(/slide(\d+)\.xml$/i)?.[1] ?? 0);
   const slides = Object.keys(entries)
     .sort((a, b) => slideNumber(a) - slideNumber(b))
-    .map((name) => tidy(slideXmlToText(strFromU8(entries[name]))))
-    .filter(Boolean);
+    .map((name) => {
+      const paragraphs = slideXmlToText(strFromU8(entries[name])).split('\n');
+      return {
+        marked: slideToMarkedText(paragraphs),
+        plain: tidy(paragraphs.join('\n')),
+      };
+    })
+    .filter((slide) => slide.marked);
   if (slides.length === 0) {
     throw new Error('PPT 中没有可读取的文字（可能全部是图片或扫描页），请先转为可复制文字的幻灯片。');
   }
-  const full = tidy(slides.join('\n\n'));
+  const full = tidy(slides.map((slide) => slide.marked).join('\n\n'));
   return {
     text: full.slice(0, maxChars),
-    chars: full.length,
+    chars: slides.reduce((sum, slide) => sum + slide.plain.length, 0),
     truncated: full.length > maxChars,
   };
 }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { chunkText, parseExtraction, validateApiConfig } from '../llm';
+import { mergeExtractions } from '../extractCore';
+import type { ExtractedNode } from '../types';
 
 const TEXT = '甲'.repeat(2000);
 
@@ -36,6 +38,43 @@ describe('分块与模型输出解析', () => {
     const nodes = parseExtraction('```markdown\n# 主题 :: 原句。 :: 问句？\n```');
     expect(nodes).toHaveLength(1);
     expect(nodes[0].title).toBe('主题');
+  });
+});
+
+describe('跨块合并的层级', () => {
+  const node = (title: string, level: number): ExtractedNode => ({
+    title,
+    quote: title,
+    question: `${title}？`,
+    level,
+  });
+
+  it('其余根节点下沉时，子节点跟着一起下沉', () => {
+    const merged = mergeExtractions(
+      [
+        [node('章节A', 0), node('规则A1', 1)],
+        [node('章节B', 0), node('规则B1', 1), node('规则B2', 1)],
+      ],
+      '章节A 规则A1 章节B 规则B1 规则B2',
+    );
+    expect(merged.map((item) => [item.title, item.level])).toEqual([
+      ['章节A', 0],
+      ['规则A1', 1],
+      ['章节B', 1],
+      ['规则B1', 2],
+      ['规则B2', 2],
+    ]);
+  });
+
+  it('每个父节点最多 7 个直接子节点，超出部分收进“更多”分组', () => {
+    const children = Array.from({ length: 12 }, (_, index) => node(`子规则${index}`, 1));
+    const merged = mergeExtractions(
+      [[node('根主题', 0), ...children]],
+      children.map((child) => child.title).join(' '),
+    );
+    const rootChildren = merged.filter((item) => item.level === 1);
+    expect(rootChildren.length).toBeLessThanOrEqual(7);
+    expect(merged.some((item) => item.title.startsWith('更多'))).toBe(true);
   });
 });
 

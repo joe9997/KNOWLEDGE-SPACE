@@ -343,38 +343,54 @@ export function buildLocalAssistantReply(
   }
 
   if (doc && nodes.length > 0 && wantsSummary) {
-    // 按主题分组展示，每个概念给核心 + 关键细节，而不是机械罗列
-    const groups = groupByRootTheme(doc);
+    // 只讲最值得记的几条规则：排除中心主题、空引用和套话标题
+    const RULE_CUE =
+      /(转换|精度|隐式|显式|必须|不能|规则|范围|赋值|区别|是指|指的是|定义为|分为|包括)/g;
+    const genericTitle = /^(例|举例|注意|同样|因此|所以|概述|小结|总结|目录|更多)/;
+    const candidates = nodes
+      .map((node, index) => ({ node, index }))
+      .filter(
+        ({ node }) =>
+          node.level > 0 &&
+          node.quote.replace(/\s+/g, '').length >= 12 &&
+          !genericTitle.test(node.title.trim()),
+      )
+      .map(({ node, index }) => ({
+        node,
+        index,
+        score:
+          (node.quote.match(RULE_CUE) ?? []).length * 3 +
+          Math.min(4, node.quote.length / 50) +
+          (node.level === 1 ? 2 : 0),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
     const lines: string[] = [
-      `📚 《${doc.title}》· 核心总结`,
+      `📚 《${doc.title}》· 这章最值得记的 ${candidates.length} 条`,
       doc.subtitle ? `主题：${doc.subtitle}` : '',
-      doc.summary ? `摘要：${doc.summary}` : '',
-      '',
-      `共 ${nodes.length} 个核心概念，按主题分组如下：`,
     ].filter(Boolean);
 
-    let index = 0;
-    const MAX = 6;
-    for (const [theme, groupNodes] of groups.entries()) {
-      if (index >= MAX) break;
-      const isSelf = theme.startsWith('__self__');
-      if (!isSelf) {
-        lines.push('', `▸ ${theme}`);
+    candidates.forEach(({ node }, index) => {
+      const rule = pickKeySentence(node.quote, 100);
+      lines.push('', `${index + 1}. **${node.title}**`);
+      if (rule) {
+        lines.push(`   ${rule}`);
       }
-      for (const node of groupNodes.slice(0, isSelf ? 1 : 3)) {
-        if (index >= MAX) break;
-        index += 1;
-        lines.push(`${index}. **${node.title}**`);
-        const key = node.quote ? pickKeySentence(node.quote, 90) : '';
-        if (key) {
-          lines.push(`   ${emphasizeQuote(key)}`);
-        }
+      const example = node.quote.match(/(?:例如|比如|例|如)[：:]\s*([^。！？；]{6,80})/);
+      if (example) {
+        lines.push(`   例：${example[1].trim()}`);
       }
+    });
+
+    const structure = nodes
+      .filter((node) => node.level <= 1 && node.level > 0)
+      .map((node) => node.title)
+      .slice(0, 6);
+    if (structure.length > 0) {
+      lines.push('', `结构：${structure.join(' · ')}`);
     }
-    if (nodes.length > MAX) {
-      lines.push('', `（还有 ${nodes.length - MAX} 个概念，可逐个问我）`);
-    }
-    lines.push('', '想深入某一点，直接问我「什么是 XXX」；想检验理解，说「出题考我」。');
+    lines.push('', '想针对某条规则练一下，说「出题考我」。');
     return lines.join('\n');
   }
 

@@ -465,8 +465,8 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         const perspective = FOV / Math.max(320, FOV + depth * WORLD_RADIUS);
         const scale = perspective * fit * zoom;
         return {
-          sx: width / 2 + x1 * WORLD_RADIUS * scale,
-          sy: height * 0.47 + y2 * WORLD_RADIUS * scale,
+          sx: width / 2 + x1 * WORLD_RADIUS * scale + panX,
+          sy: height * 0.47 + y2 * WORLD_RADIUS * scale + panY,
           depth,
           scale,
         };
@@ -960,6 +960,16 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
 
         ctx.restore();
 
+        // 节点多时只显示章节级标签，具体知识点缩放或选中后再显示，避免满屏小字
+        const showLabel =
+          isRoot ||
+          selected ||
+          (entry.node.level <= 1 && (projected.length <= 14 || zoom >= 1.3)) ||
+          zoom >= 1.45;
+        if (!showLabel) {
+          return;
+        }
+
         const fontSize = isRoot ? 19 : 11.5 + clamp(entry.weight, 0, 1) * 2.5;
         let labelX = entry.sx;
         let labelY = entry.sy + radius + (isRoot ? 28 : 27);
@@ -1271,8 +1281,14 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
             drag.moved = true;
           }
           if (view === 'galaxy') {
-            theta += dx * 0.0075;
-            phi = clamp(phi + dy * 0.0055, -1.15, 1.15);
+            // 默认拖动平移；按住 Shift 或右键拖动才旋转星系
+            if (event.shiftKey || (event.buttons & 2) === 2) {
+              theta += dx * 0.0075;
+              phi = clamp(phi + dy * 0.0055, -1.15, 1.15);
+            } else {
+              panX += dx;
+              panY += dy;
+            }
           } else {
             panX += dx;
             panY += dy;
@@ -1311,12 +1327,17 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         onZoomChangeRef.current(Math.round(zoom * 100));
       };
 
+      const onContextMenu = (event: Event) => {
+        event.preventDefault();
+      };
+
       container.addEventListener('pointerdown', onPointerDown);
       container.addEventListener('pointermove', onPointerMove);
       container.addEventListener('pointerleave', onPointerLeave);
       container.addEventListener('pointerup', onPointerUp);
       container.addEventListener('pointercancel', onPointerUp);
       container.addEventListener('wheel', onWheel, { passive: false });
+      container.addEventListener('contextmenu', onContextMenu);
 
       raf = requestAnimationFrame(drawFrame);
 
@@ -1329,6 +1350,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         container.removeEventListener('pointerup', onPointerUp);
         container.removeEventListener('pointercancel', onPointerUp);
         container.removeEventListener('wheel', onWheel);
+        container.removeEventListener('contextmenu', onContextMenu);
         container.classList.remove('is-dragging');
         container.style.cursor = '';
         if (canvas.parentElement === container) {
@@ -1343,7 +1365,7 @@ export const GalaxyGraph = forwardRef<GalaxyGraphHandle, GalaxyGraphProps>(
         ref={containerRef}
         data-testid="graph-canvas"
         role="img"
-        aria-label={view === 'galaxy' ? '知识星系，拖动旋转、滚轮缩放，点击星点查看内容' : '知识图谱，拖动平移、滚轮缩放，点击节点查看内容'}
+        aria-label={view === 'galaxy' ? '知识星系，拖动移动、Shift 加拖动旋转、滚轮缩放，点击星点查看内容' : '知识图谱，拖动平移、滚轮缩放，点击节点查看内容'}
       />
     );
   },

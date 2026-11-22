@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
-import { ArrowRight, Check, Eye, ListChecks, X } from 'lucide-react';
+import { ArrowRight, Check, Eye, ListChecks, Loader2, X } from 'lucide-react';
 import { buildChoiceQuestions } from '../../lib/quizBank';
 import type { ChoiceQuestion, QuizMode } from '../../lib/quizBank';
+import { requestAiQuiz } from '../../lib/quizAi';
 import { GRADE_LABEL, statusOf } from '../../lib/review';
 import type { KnowledgeDoc, ReviewGrade } from '../../lib/types';
 import { useApp } from '../../state/AppStore';
@@ -18,31 +19,86 @@ interface QuizModalProps {
 const EMPTY_RESULTS: Record<ReviewGrade, number> = { 0: 0, 1: 0, 2: 0 };
 
 export function QuizModal({ open, doc, queue, initialMode, onClose }: QuizModalProps) {
-  const { reviewNode, now } = useApp();
-  const [mode, setMode] = useState<QuizMode | null>(initialMode);
+  const { reviewNode, now, aiReady, apiConfig, serverAi, currentUser } = useApp();
+  const [mode, setMode] = useState<QuizMode>(initialMode ?? 'choice');
   const [questions, setQuestions] = useState<ChoiceQuestion[]>([]);
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [results, setResults] = useState<Record<ReviewGrade, number>>(EMPTY_RESULTS);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [quizNote, setQuizNote] = useState<string | null>(null);
   const answeredRef = useRef(false);
+  const requestRef = useRef(0);
   const queueKey = queue.join('|');
 
-  const startMode = (nextMode: QuizMode | null) => {
+  const startMode = (nextMode: QuizMode) => {
+    const token = ++requestRef.current;
     setMode(nextMode);
-    setQuestions(nextMode === 'choice' && doc ? buildChoiceQuestions(doc, queue) : []);
     setIndex(0);
     setRevealed(false);
     setResults(EMPTY_RESULTS);
     setSelectedOptionId(null);
+    setQuizNote(null);
     answeredRef.current = false;
+
+    if (nextMode !== 'choice' || !doc) {
+      setQuestions([]);
+      setAiLoading(false);
+      return;
+    }
+    const localQuestions = buildChoiceQuestions(doc, queue);
+    if (!aiReady) {
+      setQuestions(localQuestions);
+      setAiLoading(false);
+      return;
+    }
+
+    // 有模型时直接让 AI 根据知识点出题；失败或证据不足再回退本地题库
+    setQuestions([]);
+    setAiLoading(true);
+    const config = serverAi?.available ? null : apiConfig;
+    void requestAiQuiz(doc, queue, config, currentUser?.id)
+      .then((aiQuestions) => {
+        if (token !== requestRef.current) {
+          return;
+        }
+        if (aiQuestions.length > 0) {
+          setQuestions(aiQuestions);
+          setQuizNote('AI 根据知识点出题，答案依据来自原文引用');
+        } else {
+          setQuestions(localQuestions);
+          setQuizNote(
+            localQuestions.length > 0
+              ? 'AI 判断证据不足，已回退本地题库'
+              : 'AI 判断当前知识点不足以出好题',
+          );
+        }
+      })
+      .catch(() => {
+        if (token !== requestRef.current) {
+          return;
+        }
+        setQuestions(localQuestions);
+        setQuizNote(
+          localQuestions.length > 0 ? 'AI 出题失败，已回退本地题库' : 'AI 出题失败，请稍后再试',
+        );
+      })
+      .finally(() => {
+        if (token === requestRef.current) {
+          setAiLoading(false);
+        }
+      });
   };
 
   useEffect(() => {
     if (!open) {
       return;
     }
-    startMode(initialMode);
+    startMode(initialMode ?? 'choice');
+    return () => {
+      requestRef.current += 1;
+    };
     // 只在打开新队列时生成一次题目，答题导致 doc 更新后不能重新洗牌。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, queueKey, initialMode]);
@@ -112,26 +168,45 @@ export function QuizModal({ open, doc, queue, initialMode, onClose }: QuizModalP
     <Modal
       open={open}
       onClose={onClose}
-      title={finished ? '本轮答题完成' : mode === 'choice' ? '题库 · 自动选择题' : '回到原句 · 自测'}
+      title={
+        finished
+          ? '本轮答题完成'
+          : mode === 'choice'
+            ? aiLoading
+              ? '题库 · AI 出题中'
+              : '题库 · 自动选择题'
+            : '回到原句 · 自测'
+      }
       eyebrow="KNOWLEDGE CHECK"
       size="md"
     >
       {!doc ? (
         renderEmpty()
-      ) : mode === null ? (
-        <div className="quiz-mode-grid">
-          <button type="button" className="quiz-mode-card" onClick={() => startMode('choice')}>
-            <ListChecks size={23} />
-            <strong>自动选择题</strong>
-            <span>从当前材料的原文生成选项，即时判分并更新掌握度。</span>
-          </button>
-          <button type="button" className="quiz-mode-card" onClick={() => startMode('self')}>
-            <Eye size={23} />
-            <strong>问答自评</strong>
-            <span>先回忆再对照原文，连续完成全部知识点。</span>
-          </button>
-        </div>
-      ) : finished ? (
+      ) : (
+        <>
+          <div className="quiz-mode-switch" role="tablist" aria-label="题库模式">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'choice'}
+              className={mode === 'choice' ? 'is-active' : ''}
+              onClick={() => startMode('choice')}
+            >
+              <ListChecks size={13} />
+              自动选择题
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'self'}
+              className={mode === 'self' ? 'is-active' : ''}
+              onClick={() => startMode('self')}
+            >
+              <Eye size={13} />
+              问答自评
+            </button>
+          </div>
+          {finished ? (
         <div className="quiz-result">
           <div className="quiz-result__mark">
             <Check size={24} />
@@ -158,6 +233,12 @@ export function QuizModal({ open, doc, queue, initialMode, onClose }: QuizModalP
             完成并查看图谱
           </button>
         </div>
+      ) : mode === 'choice' && aiLoading ? (
+        <div className="quiz-loading">
+          <Loader2 size={20} className="spinner" />
+          <p>AI 正在根据知识点出题…</p>
+          <p className="quiz-hint">优先依据原文引用，证据不足的题不会生成。</p>
+        </div>
       ) : mode === 'choice' && !currentQuestion ? (
         <div>
           <p className="quiz-question" style={{ fontSize: 20 }}>暂时无法生成选择题</p>
@@ -167,9 +248,6 @@ export function QuizModal({ open, doc, queue, initialMode, onClose }: QuizModalP
           <div className="quiz-actions">
             <button type="button" className="glass-button" onClick={() => startMode('self')}>
               改用问答自评
-            </button>
-            <button type="button" className="text-button" onClick={() => startMode(null)}>
-              返回模式选择
             </button>
           </div>
         </div>
@@ -184,6 +262,7 @@ export function QuizModal({ open, doc, queue, initialMode, onClose }: QuizModalP
             </span>
             <span>{mode === 'choice' ? '即时判分' : statusOf(current, now) === 'due' ? '到期' : '复习中'}</span>
           </div>
+          {quizNote && <p className="quiz-note">{quizNote}</p>}
 
           {mode === 'choice' && currentQuestion ? (
             <>
@@ -220,6 +299,11 @@ export function QuizModal({ open, doc, queue, initialMode, onClose }: QuizModalP
                   <strong>
                     {selectedOptionId === currentQuestion.correctOptionId ? '回答正确，已记为掌握' : '回答错误，已标记为没记住'}
                   </strong>
+                  {currentQuestion.explanation && (
+                    <p className="quiz-choice-feedback__explain">
+                      依据：{currentQuestion.explanation}
+                    </p>
+                  )}
                   <button type="button" className="glass-button" onClick={nextChoice}>
                     {index + 1 === total ? '查看结果' : '下一题'}
                     <ArrowRight size={15} />
@@ -291,6 +375,8 @@ export function QuizModal({ open, doc, queue, initialMode, onClose }: QuizModalP
             </>
           ) : null}
         </div>
+          )}
+        </>
       )}
     </Modal>
   );

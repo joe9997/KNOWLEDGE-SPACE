@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
-import { ArrowUp, FileText, Image as ImageIcon, Plus, X } from 'lucide-react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { ArrowUp, FileText, Image as ImageIcon, Menu, Plus, X } from 'lucide-react';
 import type { KnowledgeDoc } from '../../lib/types';
 import { validateApiConfig } from '../../lib/llm';
 import { STATIC_DEPLOY } from '../../lib/auth';
@@ -8,71 +8,176 @@ import { detectFileKind, extractFileText, FILE_ACCEPT } from '../../lib/fileText
 import { useApp } from '../../state/AppStore';
 import {
   buildAutoStudyBrief,
-  buildHubStudyBrief,
   buildKnowledgeContext,
   buildLocalAssistantReply,
   requestAssistantReplyStream,
   type ChatContentPart,
   type OutgoingChatMessage,
 } from '../../lib/assistant';
-type RichLineKind = 'title' | 'meta' | 'section' | 'item' | 'detail' | 'answer' | 'body';
 
-/** 按行判断内容类型，让总结 / 出题这些长文本有字号与字体的层次 */
-function classifyLine(line: string, index: number): RichLineKind {
-  const text = line.trim();
-  if (index === 0) {
-    return 'title';
-  }
-  if (/^(当前知识库|已连接最近会话|本地(总结|总览|检索|出题|学习计划))/.test(text)) {
-    return 'title';
-  }
-  if (/^(主题|摘要|规模|共\s*\d+\s*个要点|命中\s*\d+\s*条|已接入\s*\d+\s*个会话)/.test(text)) {
-    return 'meta';
-  }
-  if (/^(答案|参考答案)\s*[:：]/.test(text)) {
-    return 'answer';
-  }
-  if (/^\s{2,}\S/.test(line)) {
-    return 'detail';
-  }
-  if (/^(讲解|结构|自测|正面|背面|卡片\s*\d+)[：:]/.test(text) || /^卡片\s*\d+$/.test(text)) {
-    return 'detail';
-  }
-  if (/^\d+[.、]\s/.test(text) || /^[-·•]\s/.test(text)) {
-    return 'item';
-  }
-  if (/[:：]$/.test(text) && text.length <= 40) {
-    return 'section';
-  }
-  return 'body';
-}
-
-/** 把 **重点** 渲染成加粗，其余保持普通文本 */
-function renderInline(text: string) {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
-    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-      return <strong key={index}>{part.slice(2, -2)}</strong>;
+/** 行内 Markdown：加粗、斜体、行内代码、http(s) 链接 */
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
+  let last = 0;
+  let key = 0;
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > last) {
+      nodes.push(text.slice(last, index));
     }
-    return <span key={index}>{part}</span>;
-  });
+    const token = match[0];
+    if (token.startsWith('**')) {
+      nodes.push(<strong key={key++}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('`')) {
+      nodes.push(
+        <code key={key++} className="assistant-md__code-inline">
+          {token.slice(1, -1)}
+        </code>,
+      );
+    } else if (token.startsWith('*')) {
+      nodes.push(<em key={key++}>{token.slice(1, -1)}</em>);
+    } else {
+      const link = token.match(/^\[([^\]]+)\]\((.+)\)$/);
+      nodes.push(
+        <a
+          key={key++}
+          href={link?.[2] ?? '#'}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          {link?.[1] ?? token}
+        </a>,
+      );
+    }
+    last = index + token.length;
+  }
+  if (last < text.length) {
+    nodes.push(text.slice(last));
+  }
+  return nodes;
 }
 
-function RichMessage({ text }: { text: string }) {
-  return (
-    <div className="assistant-rich">
-      {text.split('\n').map((line, index) => {
-        if (!line.trim()) {
-          return <span key={index} className="assistant-rich__gap" aria-hidden="true" />;
-        }
-        const kind = classifyLine(line, index);
-        return (
-          <span key={index} className={`assistant-rich__${kind}`}>
-            {renderInline(line.trim())}
-          </span>
+/** 轻量 Markdown 渲染：标题、列表、代码块、引用、分隔线和行内样式 */
+function MarkdownMessage({ text }: { text: string }) {
+  const blocks: ReactNode[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
+  let code: string[] | null = null;
+  let key = 0;
+
+  const flushList = () => {
+    if (!list) {
+      return;
+    }
+    const current = list;
+    const Tag = current.ordered ? 'ol' : 'ul';
+    blocks.push(
+      <Tag
+        key={`list-${key++}`}
+        className={`assistant-md__list ${current.ordered ? 'is-ordered' : ''}`.trim()}
+      >
+        {current.items.map((item, index) => (
+          <li key={index}>{renderInlineMarkdown(item)}</li>
+        ))}
+      </Tag>,
+    );
+    list = null;
+  };
+
+  const flushCode = () => {
+    if (!code) {
+      return;
+    }
+    blocks.push(
+      <pre key={`code-${key++}`} className="assistant-md__pre">
+        <code>{code.join('\n')}</code>
+      </pre>,
+    );
+    code = null;
+  };
+
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/\s+$/, '');
+    if (code) {
+      if (/^\s*```/.test(line)) {
+        flushCode();
+      } else {
+        code.push(raw);
+      }
+      continue;
+    }
+    if (/^\s*```/.test(line)) {
+      flushList();
+      code = [];
+      continue;
+    }
+    if (!line.trim()) {
+      flushList();
+      blocks.push(<span key={`gap-${key++}`} className="assistant-md__gap" />);
+      continue;
+    }
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      flushList();
+      const level = heading[1].length;
+      const content = renderInlineMarkdown(heading[2]);
+      if (level === 1) {
+        blocks.push(
+          <p key={`h-${key++}`} className="assistant-md__h1">
+            {content}
+          </p>,
         );
-      })}
-    </div>
-  );
+      } else if (level === 2) {
+        blocks.push(
+          <p key={`h-${key++}`} className="assistant-md__h2">
+            {content}
+          </p>,
+        );
+      } else {
+        blocks.push(
+          <p key={`h-${key++}`} className="assistant-md__h3">
+            {content}
+          </p>,
+        );
+      }
+      continue;
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
+      flushList();
+      blocks.push(<hr key={`hr-${key++}`} className="assistant-md__hr" />);
+      continue;
+    }
+    if (/^>\s?/.test(line)) {
+      flushList();
+      blocks.push(
+        <blockquote key={`quote-${key++}`} className="assistant-md__quote">
+          {renderInlineMarkdown(line.replace(/^>\s?/, ''))}
+        </blockquote>,
+      );
+      continue;
+    }
+    const ordered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+    if (ordered || bullet) {
+      const isOrdered = Boolean(ordered);
+      if (!list || list.ordered !== isOrdered) {
+        flushList();
+        list = { ordered: isOrdered, items: [] };
+      }
+      list.items.push((ordered?.[1] ?? bullet?.[1] ?? '').trim());
+      continue;
+    }
+    flushList();
+    blocks.push(
+      <p key={`p-${key++}`} className="assistant-md__p">
+        {renderInlineMarkdown(line.trim())}
+      </p>,
+    );
+  }
+  flushCode();
+  flushList();
+
+  return <div className="assistant-md">{blocks}</div>;
 }
 
 interface AssistantChatProps {
@@ -133,19 +238,7 @@ function memoryKey(userId: string): string {
   return `${MEMORY_PREFIX}:${userId}`;
 }
 
-/** 只保留可安全落盘的结构，图片预览等大字段不写入本地存储 */
-function compactEntries(entries: ChatEntry[]): ChatEntry[] {
-  return entries.slice(-MEMORY_LIMIT).map((entry) => ({
-    role: entry.role,
-    content: entry.content,
-    ...(entry.files && entry.files.length > 0
-      ? {
-          files: entry.files.map((file) => ({ name: file.name, kind: file.kind })),
-        }
-      : {}),
-  }));
-}
-
+/** 清洗历史消息：只保留角色、文本和附件元信息，最多保留最近 15 条 */
 function sanitizeEntries(value: unknown): ChatEntry[] {
   if (!Array.isArray(value)) {
     return [];
@@ -157,7 +250,16 @@ function sanitizeEntries(value: unknown): ChatEntry[] {
     if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') {
       continue;
     }
-    entries.push({ role, content });
+    const rawFiles = (item as ChatEntry | undefined)?.files;
+    const files: AttachmentMeta[] = [];
+    if (Array.isArray(rawFiles)) {
+      for (const file of rawFiles) {
+        if (file && typeof file.name === 'string' && (file.kind === 'text' || file.kind === 'image')) {
+          files.push({ name: file.name, kind: file.kind });
+        }
+      }
+    }
+    entries.push({ role, content, ...(files.length > 0 ? { files } : {}) });
   }
   return entries.slice(-MEMORY_LIMIT);
 }
@@ -174,15 +276,144 @@ function readMemory(key: string | null): ChatEntry[] {
   }
 }
 
-function writeMemory(key: string | null, entries: ChatEntry[]): void {
+interface AssistantThread {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: ChatEntry[];
+}
+
+const THREADS_PREFIX = 'ks.assistant.threads.v1';
+const ACTIVE_THREAD_PREFIX = 'ks.assistant.active.v1';
+const THREAD_LIMIT = 30;
+
+function threadsKeyOf(userId?: string): string | null {
+  return userId ? `${THREADS_PREFIX}:${userId}` : null;
+}
+
+function activeThreadKeyOf(userId?: string): string | null {
+  return userId ? `${ACTIVE_THREAD_PREFIX}:${userId}` : null;
+}
+
+function createThreadId(): string {
+  return `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function titleFromMessages(messages: ChatEntry[]): string {
+  const first = messages.find((entry) => entry.role === 'user' && entry.content.trim());
+  if (!first) {
+    return '新会话';
+  }
+  const clean = first.content.replace(/\s+/g, ' ').trim();
+  return clean.length > 22 ? `${clean.slice(0, 22)}…` : clean;
+}
+
+function makeThread(messages: ChatEntry[] = []): AssistantThread {
+  const now = Date.now();
+  return {
+    id: createThreadId(),
+    title: titleFromMessages(messages),
+    createdAt: now,
+    updatedAt: now,
+    messages,
+  };
+}
+
+function sanitizeThreads(value: unknown): AssistantThread[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const threads: AssistantThread[] = [];
+  for (const item of value) {
+    const entry = item as Partial<AssistantThread> | null;
+    if (!entry || typeof entry.id !== 'string') {
+      continue;
+    }
+    threads.push({
+      id: entry.id,
+      title: typeof entry.title === 'string' && entry.title.trim() ? entry.title : '新会话',
+      createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : Date.now(),
+      updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : Date.now(),
+      messages: sanitizeEntries(entry.messages),
+    });
+  }
+  return threads
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, THREAD_LIMIT);
+}
+
+function readThreads(key: string | null): AssistantThread[] {
+  if (!key) {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? sanitizeThreads(JSON.parse(raw)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeThreads(key: string | null, threads: AssistantThread[]): void {
   if (!key) {
     return;
   }
   try {
-    window.localStorage.setItem(key, JSON.stringify(compactEntries(entries)));
+    // 图片预览等大字段不落盘，只存附件名称和类型，避免撑爆本地存储
+    const safe = threads.slice(0, THREAD_LIMIT).map((thread) => ({
+      ...thread,
+      messages: thread.messages.map((entry) => ({
+        role: entry.role,
+        content: entry.content,
+        ...(entry.files && entry.files.length > 0
+          ? { files: entry.files.map((file) => ({ name: file.name, kind: file.kind })) }
+          : {}),
+      })),
+    }));
+    window.localStorage.setItem(key, JSON.stringify(safe));
   } catch {
-    // 本地存储不可用或已满时放弃记忆，不影响当前对话
+    // 存储已满时放弃历史记录，不影响当前会话
   }
+}
+
+function readActiveThread(key: string | null): string | null {
+  if (!key) {
+    return null;
+  }
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeActiveThread(key: string | null, id: string): void {
+  if (!key) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, id);
+  } catch {
+    // 忽略存储失败
+  }
+}
+
+function formatThreadTime(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  if (diff < 60_000) {
+    return '刚刚';
+  }
+  if (diff < 3_600_000) {
+    return `${Math.max(1, Math.floor(diff / 60_000))} 分钟前`;
+  }
+  if (diff < 86_400_000) {
+    return `${Math.max(1, Math.floor(diff / 3_600_000))} 小时前`;
+  }
+  return new Date(timestamp).toLocaleDateString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+  });
 }
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -256,6 +487,8 @@ export function AssistantChat({
 }: AssistantChatProps) {
   const { apiConfig, currentUser, aiReady } = useApp();
   const memoryStorageKey = currentUser ? memoryKey(currentUser.id) : null;
+  const threadsStorageKey = currentUser ? threadsKeyOf(currentUser.id) : null;
+  const activeStorageKey = currentUser ? activeThreadKeyOf(currentUser.id) : null;
   const panelRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const attachRef = useRef<HTMLDivElement>(null);
@@ -268,14 +501,57 @@ export function AssistantChat({
     originY: number;
   } | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
-  const [messages, setMessages] = useState<ChatEntry[]>(() => readMemory(memoryStorageKey));
+  const [threads, setThreads] = useState<AssistantThread[]>(() => readThreads(threadsStorageKey));
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(() =>
+    readActiveThread(activeStorageKey),
+  );
+  // 整页形态默认展开会话栏；窄屏默认收起成侧边窄条
+  const [historyOpen, setHistoryOpen] = useState(
+    () => variant === 'page' && !window.matchMedia('(max-width: 760px)').matches,
+  );
+  const [messages, setMessages] = useState<ChatEntry[]>(() => {
+    const list = readThreads(threadsStorageKey);
+    const active =
+      list.find((thread) => thread.id === readActiveThread(activeStorageKey)) ?? list[0];
+    return active ? active.messages : readMemory(memoryStorageKey);
+  });
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 侧栏入口（hub）跨所有 docs 自动总结；图谱页入口（doc）针对当前材料自动总结
+  const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null;
+  // 历史面板按最近更新排序
+  const sortedThreads = [...threads].sort((a, b) => b.updatedAt - a.updatedAt);
+
+  // 用户切换 / 首次进入：读取历史会话；旧版单会话记忆自动迁移成第一条记录
+  useEffect(() => {
+    if (!threadsStorageKey) {
+      setThreads([]);
+      setActiveThreadId(null);
+      setMessages([]);
+      return;
+    }
+    let list = readThreads(threadsStorageKey);
+    if (list.length === 0) {
+      const legacy = readMemory(memoryStorageKey);
+      const thread = makeThread(legacy);
+      list = [thread];
+      writeThreads(threadsStorageKey, list);
+      writeActiveThread(activeStorageKey, thread.id);
+    }
+    const active =
+      list.find((thread) => thread.id === readActiveThread(activeStorageKey)) ?? list[0];
+    setThreads(list);
+    setActiveThreadId(active?.id ?? null);
+    setMessages(active?.messages ?? []);
+    if (active) {
+      writeActiveThread(activeStorageKey, active.id);
+    }
+  }, [threadsStorageKey, activeStorageKey, memoryStorageKey]);
+
+  // 侧栏 / 图谱入口每次进入都开一条新会话；doc 入口保留材料开场
   const seededSession = useRef<number | null>(null);
   useEffect(() => {
     if (variant !== 'page' || !open || sessionToken === undefined) {
@@ -288,18 +564,107 @@ export function AssistantChat({
       return;
     }
     seededSession.current = sessionToken;
-    const brief = mode === 'doc' ? buildAutoStudyBrief(doc) : buildHubStudyBrief(docs);
-    setMessages(brief ? [{ role: 'assistant', content: brief }] : []);
+    const brief = mode === 'doc' ? buildAutoStudyBrief(doc) : null;
+    const stored = readThreads(threadsStorageKey);
+    // 当前会话还是空的就复用它，避免反复点入口堆出多条空会话
+    const current =
+      stored.find((thread) => thread.id === readActiveThread(activeStorageKey)) ?? stored[0];
+    const reusable = !brief && current && current.messages.length === 0 ? current : null;
+    const thread = reusable ?? makeThread(brief ? [{ role: 'assistant', content: brief }] : []);
+    const next = reusable ? stored : [thread, ...stored].slice(0, THREAD_LIMIT);
+    writeThreads(threadsStorageKey, next);
+    setThreads(next);
+    setActiveThreadId(thread.id);
+    writeActiveThread(activeStorageKey, thread.id);
+    setMessages(thread.messages);
     setError(null);
-  }, [sessionToken, open, variant, mode, doc, docs]);
+    if (variant !== 'page') {
+      setHistoryOpen(false);
+    }
+  }, [
+    sessionToken,
+    open,
+    variant,
+    mode,
+    doc,
+    docs,
+    threadsStorageKey,
+    activeStorageKey,
+  ]);
 
-  // 流式输出期间不落盘，等这一轮结束再写入最近 15 条
+  // 对话结束后把消息写回当前会话；流式期间不反复写盘
   useEffect(() => {
-    if (loading) {
+    if (loading || !threadsStorageKey || !activeThreadId) {
       return;
     }
-    writeMemory(memoryStorageKey, messages);
-  }, [messages, loading, memoryStorageKey]);
+    setThreads((prev) => {
+      const target = prev.find((thread) => thread.id === activeThreadId);
+      if (!target || target.messages === messages) {
+        return prev;
+      }
+      const next = prev.map((thread) =>
+        thread.id === activeThreadId
+          ? {
+              ...thread,
+              messages,
+              title: titleFromMessages(messages),
+              updatedAt: Date.now(),
+            }
+          : thread,
+      );
+      writeThreads(threadsStorageKey, next);
+      return next;
+    });
+  }, [messages, loading, activeThreadId, threadsStorageKey]);
+
+  // 浮窗打开时重新读取最新会话，和整页助手共享历史
+  useEffect(() => {
+    if (variant !== 'popover' || !open || !threadsStorageKey) {
+      return;
+    }
+    const list = readThreads(threadsStorageKey);
+    const active =
+      list.find((thread) => thread.id === readActiveThread(activeStorageKey)) ?? list[0];
+    setThreads(list);
+    if (active) {
+      setActiveThreadId(active.id);
+      setMessages(active.messages);
+    }
+  }, [open, variant, threadsStorageKey, activeStorageKey]);
+
+  const selectThread = (id: string) => {
+    const thread = threads.find((item) => item.id === id);
+    if (!thread) {
+      return;
+    }
+    setActiveThreadId(id);
+    writeActiveThread(activeStorageKey, id);
+    setMessages(thread.messages);
+    setAttachments([]);
+    setInput('');
+    setError(null);
+    if (variant !== 'page') {
+      setHistoryOpen(false);
+    }
+  };
+
+  const startNewThread = () => {
+    const thread = makeThread();
+    setThreads((prev) => {
+      const next = [thread, ...prev].slice(0, THREAD_LIMIT);
+      writeThreads(threadsStorageKey, next);
+      return next;
+    });
+    setActiveThreadId(thread.id);
+    writeActiveThread(activeStorageKey, thread.id);
+    setMessages([]);
+    setAttachments([]);
+    setInput('');
+    setError(null);
+    if (variant !== 'page') {
+      setHistoryOpen(false);
+    }
+  };
 
   useEffect(() => {
     if (!open) {
@@ -332,6 +697,29 @@ export function AssistantChat({
       document.removeEventListener('keydown', onKey);
     };
   }, [pickerOpen]);
+
+  // 浮窗的历史面板：点击面板外或按 Esc 收起；整页形态的会话栏常驻，不自动收起
+  useEffect(() => {
+    if (!historyOpen || variant !== 'popover') {
+      return;
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (!panelRef.current?.contains(event.target as Node)) {
+        setHistoryOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setHistoryOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [historyOpen, variant]);
 
   const clampPosition = (left: number, top: number): Position => {
     const panel = panelRef.current;
@@ -524,36 +912,140 @@ export function AssistantChat({
       aria-label="AI 助手对话"
       aria-hidden={variant === 'page' ? undefined : !open}
     >
-      <header
-        className={`assistant-chat__head ${variant === 'page' ? 'is-static' : ''}`.trim()}
-        onPointerDown={variant === 'page' ? undefined : onDragStart}
-        onPointerMove={variant === 'page' ? undefined : onDragMove}
-        onPointerUp={variant === 'page' ? undefined : onDragEnd}
-        onPointerCancel={variant === 'page' ? undefined : onDragEnd}
-      >
-        <div className="assistant-chat__title">
-          <strong>AI 助手</strong>
-          {doc && (
+      {variant === 'page' && (
+        <aside
+          className={`assistant-chat__threads ${historyOpen ? 'is-open' : ''}`.trim()}
+          aria-label="会话记录"
+        >
+          <div className="assistant-chat__threads-inner">
+            <div className="assistant-chat__threads-head">
+              <button
+                type="button"
+                className={`assistant-chat__history-toggle ${historyOpen ? 'is-open' : ''}`.trim()}
+                onClick={() => setHistoryOpen((value) => !value)}
+                aria-label={historyOpen ? '收起会话记录' : '展开会话记录'}
+                aria-expanded={historyOpen}
+                title={historyOpen ? '收起会话记录' : '展开会话记录'}
+              >
+                <Menu size={15} />
+              </button>
+              <span className="assistant-chat__threads-label">会话记录</span>
+              <button
+                type="button"
+                className="assistant-chat__history-new"
+                onClick={startNewThread}
+                title="新建会话"
+              >
+                <Plus size={12} />
+                新建会话
+              </button>
+            </div>
+            <div className="assistant-chat__history-list">
+              {sortedThreads.length === 0 && (
+                <p className="assistant-chat__history-empty">还没有会话记录。</p>
+              )}
+              {sortedThreads.map((thread) => (
+                <button
+                  key={thread.id}
+                  type="button"
+                  className={`assistant-chat__history-item ${
+                    thread.id === activeThreadId ? 'is-active' : ''
+                  }`.trim()}
+                  onClick={() => selectThread(thread.id)}
+                >
+                  <span className="assistant-chat__history-title">{thread.title}</span>
+                  <span className="assistant-chat__history-meta">
+                    {formatThreadTime(thread.updatedAt)} · {thread.messages.length} 条消息
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
+      )}
+
+      <div className="assistant-chat__pane">
+        <header
+          className={`assistant-chat__head ${variant === 'page' ? 'is-static' : ''}`.trim()}
+          onPointerDown={variant === 'page' ? undefined : onDragStart}
+          onPointerMove={variant === 'page' ? undefined : onDragMove}
+          onPointerUp={variant === 'page' ? undefined : onDragEnd}
+          onPointerCancel={variant === 'page' ? undefined : onDragEnd}
+        >
+          <div className="assistant-chat__title">
+            <strong>AI 助手</strong>
             <span className="assistant-chat__doc">
-              {mode === 'doc'
-                ? `当前知识库 · ${doc.title}`
-                : docs.length > 0
-                  ? `${docs.length} 个会话 · ${doc.title}`
-                  : doc.title}
+              {activeThread && activeThread.messages.length > 0
+                ? activeThread.title
+                : doc
+                  ? mode === 'doc'
+                    ? `当前知识库 · ${doc.title}`
+                    : docs.length > 0
+                      ? `${docs.length} 个会话 · ${doc.title}`
+                      : doc.title
+                  : '新会话'}
             </span>
+          </div>
+          {variant === 'popover' && (
+            <div className="assistant-chat__actions">
+              <button
+                type="button"
+                className={`assistant-chat__history-toggle ${historyOpen ? 'is-open' : ''}`.trim()}
+                onClick={() => setHistoryOpen((value) => !value)}
+                aria-label="历史会话"
+                aria-haspopup="dialog"
+                aria-expanded={historyOpen}
+                title="历史会话"
+              >
+                <Menu size={14} />
+              </button>
+              <button
+                type="button"
+                className="assistant-chat__close"
+                onClick={onClose}
+                aria-label="关闭 AI 助手"
+              >
+                <X size={12} />
+              </button>
+            </div>
           )}
+        </header>
+
+      {historyOpen && variant === 'popover' && (
+        <div className="assistant-chat__history" role="dialog" aria-label="历史会话">
+          <div className="assistant-chat__history-head">
+            <span>历史会话</span>
+            <button
+              type="button"
+              className="assistant-chat__history-new"
+              onClick={startNewThread}
+            >
+              <Plus size={12} />
+              新建会话
+            </button>
+          </div>
+          <div className="assistant-chat__history-list">
+            {threads.length === 0 && (
+              <p className="assistant-chat__history-empty">还没有会话记录。</p>
+            )}
+            {sortedThreads.map((thread) => (
+              <button
+                key={thread.id}
+                type="button"
+                className={`assistant-chat__history-item ${
+                  thread.id === activeThreadId ? 'is-active' : ''
+                }`.trim()}
+                onClick={() => selectThread(thread.id)}
+              >
+                <span className="assistant-chat__history-title">{thread.title}</span>
+                <span className="assistant-chat__history-meta">
+                  {formatThreadTime(thread.updatedAt)} · {thread.messages.length} 条消息
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
-        {variant === 'popover' && (
-          <button
-            type="button"
-            className="assistant-chat__close"
-            onClick={onClose}
-            aria-label="关闭 AI 助手"
-          >
-            <X size={12} />
-          </button>
-        )}
-      </header>
+      )}
 
       <div className="assistant-chat__list" ref={listRef}>
         {messages.length === 0 && variant !== 'page' && (
@@ -583,7 +1075,7 @@ export function AssistantChat({
               {message.content &&
                 (message.role === 'assistant' ? (
                   <div className="assistant-chat__bubble-text is-rich">
-                    <RichMessage text={message.content} />
+                    <MarkdownMessage text={message.content} />
                     {loading && index === messages.length - 1 && (
                       <span className="assistant-chat__caret" aria-hidden="true" />
                     )}
@@ -796,6 +1288,7 @@ export function AssistantChat({
           <ArrowUp size={15} />
         </button>
       </form>
+      </div>
     </section>
   );
 }
