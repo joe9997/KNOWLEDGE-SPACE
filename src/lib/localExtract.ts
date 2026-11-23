@@ -61,6 +61,15 @@ const CN_CUES = [
   '可以',
   '因此',
   '核心',
+  // 课程复习里最值得记的规则类信号
+  '转换',
+  '精度',
+  '隐式',
+  '显式',
+  '赋值',
+  '范围',
+  '规则',
+  '类型',
 ];
 
 const SECTION_BONUS: Record<string, number> = {
@@ -191,7 +200,7 @@ const EN_DISCOURSE =
   /^(however|moreover|furthermore|therefore|thus|hence|besides|meanwhile|additionally|in addition|in this (?:section|paper|work|study)|as a result|overall|specifically|notably|in contrast|on the other hand|for example|for instance|first|second|third|finally|then|also|yet|still|to this end|in summary)[,:;]?\s+/i;
 
 const CN_DISCOURSE =
-  /^(然而|但是|但|因此|所以|此外|同时|另外|例如|比如|具体来说|总的来说|综上|首先|其次|最后|然后|而且|并且|不过|值得注意的是)[，,：:、]?\s*/;
+  /^(然而|但是|但|因此|所以|此外|同时|另外|例如|比如|具体来说|总的来说|综上|首先|其次|最后|然后|而且|并且|不过|值得注意的是|注意)[，,：:、]?\s*/;
 
 const GENERIC_TITLE =
   /^(however|moreover|therefore|thus|meanwhile|however,|in this section|this section|it|this|these|those|result|results|method|methods|approach)$/i;
@@ -229,11 +238,19 @@ function titleFromSentence(sentence: string): string {
   const meaningful = clauses.find(
     (clause) => /[\u4e00-\u9fa5]/.test(clause) || clause.split(/\s+/).length >= 2,
   );
-  const candidate = shortTitle((meaningful ?? cleaned) || sentence, 20);
-  if (GENERIC_TITLE.test(candidate)) {
+  let candidate = (meaningful ?? cleaned) || sentence;
+  // 定义句只取被定义的对象："基本数据类型是由…" → "基本数据类型"
+  const head = candidate.split(
+    /(?:是指|指的是|定义为|称为|是一种|是一个|分为|包括|用于|必须|不能|可以)/,
+  )[0];
+  if (head.trim().length >= 4) {
+    candidate = head.trim();
+  }
+  const short = shortTitle(candidate, 20);
+  if (GENERIC_TITLE.test(short)) {
     return shortTitle(stripDiscourse(sentence), 24);
   }
-  return candidate;
+  return short;
 }
 
 /** 旧数据里可能存了 "However" / "In this section" 这类空标题，或数值/参数碎片 */
@@ -281,33 +298,30 @@ export function deriveNodeTitle(quote: string, fallback = '未命名节点'): st
 }
 
 function questionFor(title: string, quote?: string): string {
-  const text = quote || title;
+  const text = `${title} ${quote || ''}`;
   const core = title.length > 20 ? title.slice(0, 20) : title;
 
-  // 按关键词生成更贴合的问句
+  // 规则类问题优先：能测“会不会用”的条件、结果与风险
+  if (/转换|隐式|显式|强转|赋值/.test(text)) {
+    return `根据原文，「${core}」在什么条件下成立？结果或风险是什么？`;
+  }
+  if (/区别|对比|不同|差异|比较/.test(text)) {
+    return `「${core}」和相近概念的关键区别是什么？`;
+  }
+  if (/规则|语法|规范|要求|约束|必须|不能|精度|范围/.test(text)) {
+    return `原文对「${core}」规定了哪些条件和限制？`;
+  }
   if (/定义|概念|是指|称为/.test(text)) {
-    return `什么是「${core}」？请用自己的话解释它的核心要点。`;
+    return `用自己的话解释「${core}」，并说明它成立的条件。`;
   }
   if (/分类|类型|种类|分为|包括/.test(text)) {
-    return `「${core}」可以分成哪几类？它们各自的特点是什么？`;
+    return `「${core}」包含哪些类型或分支？各自的判断条件是什么？`;
   }
-  if (/方法|步骤|算法|流程|步骤|过程/.test(text)) {
+  if (/方法|步骤|算法|流程|过程/.test(text)) {
     return `「${core}」的具体步骤或实现思路是什么？`;
   }
-  if (/转换|转换|cast|强转|赋值|运算/.test(text)) {
-    return `「${core}」在什么情况下会发生？需要注意什么？`;
-  }
-  if (/规则|语法|规范|要求|约束/.test(text)) {
-    return `「${core}」有哪些关键规则或语法要点？`;
-  }
-  if (/区别|对比|vs|不同|差异|比较/.test(text)) {
-    return `「${core}」和相关概念相比，最核心的区别是什么？`;
-  }
-  if (/作用|意义|影响|结果|效果|用途/.test(text)) {
+  if (/作用|意义|影响|效果|用途/.test(text)) {
     return `「${core}」的作用或实际意义是什么？`;
-  }
-  if (/例|示例|例子|example/i.test(text)) {
-    return `请用「${core}」举一个例子，并说明为什么符合定义。`;
   }
   if (/true|false|判断|对错|正误/.test(text)) {
     return `关于「${core}」的说法，哪些是正确的，哪些是错误的？`;
@@ -315,12 +329,11 @@ function questionFor(title: string, quote?: string): string {
 
   // 兜底：如果 quote 本身是完整句子，直接针对 quote 提问
   if (quote && quote.length >= 20 && /[。.!?！？]$/.test(quote.trim())) {
-    // 把陈述句转成问句：去掉结尾标点 + "是什么意思？"
     const stem = quote.trim().replace(/[。.!?！？]+$/, '');
-    return `这句话"${stem.slice(0, 40)}${stem.length > 40 ? '…' : ''}"说的是什么意思？`;
+    return `原文说“${stem.slice(0, 40)}${stem.length > 40 ? '…' : ''}”，这说明了什么？`;
   }
 
-  return `「${core}」的核心含义是什么？`;
+  return `关于「${core}」，原文给出的结论是什么？`;
 }
 
 /**
@@ -497,13 +510,17 @@ function findHeadings(text: string): Heading[] {
   const lines = text.split('\n');
   let offset = 0;
   for (const line of lines) {
-    const match = line.match(/^\s*(#{1,6})\s+(.+?)\s*$/);
-    if (match) {
+    const heading = asHeading(line);
+    if (heading) {
+      // 参考文献之后不再产出节点
+      if (STOP_SECTION.test(heading.title.trim())) {
+        break;
+      }
       headings.push({
         index: offset,
         end: offset + line.length,
-        level: match[1].length,
-        title: stripHeadingMarks(line),
+        level: heading.level,
+        title: heading.title,
       });
     }
     offset += line.length + 1;
@@ -532,20 +549,29 @@ function sentenceCandidates(text: string): string[] {
   return candidates;
 }
 
-/** 识别 Markdown 标题、论文编号章节与常见章节名 */
+/** 识别 Markdown 标题、论文编号章节、PPT 数字编号标题与常见章节名 */
 function asHeading(line: string): { level: number; title: string } | null {
   const md = line.match(/^\s*(#{1,6})\s+(.+?)\s*$/);
   if (md) {
     return { level: md[1].length - 1, title: stripHeadingMarks(line) };
   }
-  const numbered = line.match(/^\s*(\d+(?:\.\d+)*)\.?\s+([A-Z][A-Za-z0-9 ,:'’\-/().&]{2,70})$/);
-  if (numbered && !/[.!?,;]$/.test(line)) {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.length > 60) {
+    return null;
+  }
+  // 第2章、第 2 节 这类章节标题
+  if (/^第\s*[一二三四五六七八九十百\d]+\s*[章节讲课篇]/.test(trimmed)) {
+    return { level: 0, title: trimmed };
+  }
+  // 2.1 / 2.1.3 这类数字编号标题（英文论文常见；PPT 标题由文件解析时加 ## 标记）
+  const numbered = trimmed.match(/^(\d+(?:\.\d+)*)\.?\s+([A-Z][A-Za-z0-9 ,:'’\-/().&]{2,60})$/);
+  if (numbered && !/[。！？；;]$/.test(trimmed) && !/[=;{}]/.test(trimmed)) {
     return {
       level: Math.min(3, numbered[1].split('.').length - 1),
       title: numbered[2].trim(),
     };
   }
-  const named = line.match(
+  const named = trimmed.match(
     /^\s*(abstract|introduction|related work|background|method|methods|approach|experiments?|results?|evaluation|discussion|conclusions?|limitations|references|摘要|引言|相关工作|方法|实验|结果|讨论|结论|参考文献)\s*$/i,
   );
   if (named) {
@@ -626,6 +652,15 @@ function splitSentences(paragraph: string): string[] {
   let start = 0;
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
+    // PPT / 表格里常以换行分隔条目，按行断开，避免把整张表拼成一句
+    if (char === '\n') {
+      const line = text.slice(start, index).trim();
+      if (line) {
+        sentences.push(line);
+      }
+      start = index + 1;
+      continue;
+    }
     const cjkEnd = char === '。' || char === '！' || char === '？';
     const latinEnd = char === '.' || char === '!' || char === '?';
     if (!cjkEnd && !latinEnd) {
@@ -675,6 +710,17 @@ function looksLikeNoise(sentence: string): boolean {
   if (isTooShort(sentence)) {
     return true;
   }
+  // PPT 模板占位文字，不是课程内容
+  if (/^(添加标题|单击此处添加|单击此处编辑|点击此处添加|单击添加标题|在此处添加)/.test(sentence)) {
+    return true;
+  }
+  // 以标点/引号开头的碎片，以及 PPT 上的提问/操作提示
+  if (/^['‘“"、，,。；;：:（(]/.test(sentence.trim())) {
+    return true;
+  }
+  if (/^(想输出|正确写法|请思考|下列写法|计算下列|判断对错|求b|解答[：:])/.test(sentence.trim())) {
+    return true;
+  }
   if (/@|https?:\/\/|doi\.org|arxiv:/i.test(sentence)) {
     return true;
   }
@@ -694,6 +740,13 @@ function looksLikeNoise(sentence: string): boolean {
     return true;
   }
   if (/^[\d\s.,;:+\-–—%/()]+$/.test(sentence)) {
+    return true;
+  }
+  // 表格 / 二进制演算行：数字很多又没有规则表述，不适合当知识点
+  if (
+    (sentence.match(/\d/g) ?? []).length >= 6 &&
+    !/(是指|指的是|转换|必须|不能|规则|范围|精度|赋值)/.test(sentence)
+  ) {
     return true;
   }
   // 纯英文句子里字母占比过低，多半是符号 / 公式碎片
@@ -924,7 +977,9 @@ export function buildDocMeta(text: string): { subtitle: string; summary: string 
       }
       merged = `${merged} ${next}`;
     }
-    const cleaned = merged.replace(/^\d+(?:\.\d+)*\.?\s*/, '');
+    const cleaned = merged
+      .replace(/^#{1,6}\s*/, '')
+      .replace(/^\d+(?:\.\d+)*\.?\s*/, '');
     // 像标题（带冒号、无句末标点）就保留完整一行；正文则只取第一句当副标题
     const looksLikeTitle = /[:：]/.test(cleaned) && !/[。.!?！？]$/.test(cleaned);
     const base = looksLikeTitle ? cleaned : firstSentence(cleaned) ?? cleaned;
@@ -999,9 +1054,88 @@ export function deriveDocTitle(text: string): string {
   return cutAtBoundary(firstLine, 28) || '未命名材料';
 }
 
+/** 去掉 PPT 模板占位行，避免把“添加标题”当成正文 */
+function removePlaceholderLines(text: string): string {
+  return text
+    .split('\n')
+    .filter(
+      (line) =>
+        !/^\s*(添加标题|单击此处添加|单击此处编辑|点击此处添加|单击添加标题|在此处添加)/.test(
+          line.trim(),
+        ),
+    )
+    .join('\n');
+}
+
+/** 为章节挑一句最适合做溯源引用的原文：优先规则、定义、条件类句子 */
+function pickSectionQuote(section: string, title: string): string {
+  const body = removePlaceholderLines(section);
+  const sentences = splitSentences(body).filter(
+    (sentence) =>
+      !looksLikeNoise(sentence) &&
+      // 例句、代码行、续句不适合当章节引用
+      !/^(例|举例|例如|如[：:]|同样|因此|所以|但是|而|并且|而且)/.test(sentence.trim()) &&
+      !/[：:]$/.test(sentence.trim()) &&
+      !/\/\//.test(sentence) &&
+      !/格式[：:]/.test(sentence) &&
+      !(/^[\d.]+[A-Za-z]?\s+/.test(sentence.trim()) && !/(转换|必须|不能|规则|范围|精度)/.test(sentence)) &&
+      (sentence.match(/[=;{}]/g) ?? []).length < 2,
+  );
+  if (sentences.length === 0) {
+    return title;
+  }
+  const best = [...sentences].sort((a, b) => {
+    const rank = (sentence: string) =>
+      scoreSentence(sentence, 0, 1, title) +
+      (/分为|分类|两大类|规则|必须|精度/.test(sentence) ? 3 : 0);
+    return rank(b) - rank(a);
+  })[0];
+  return best.length > MAX_QUOTE_LENGTH ? `${best.slice(0, MAX_QUOTE_LENGTH)}…` : best;
+}
+
+/** 从章节正文里挑 1–2 句知识点，作为该章节的子节点 */
+function sectionPoints(
+  section: string,
+  sectionTitle: string,
+  exclude: Set<string>,
+  limit = 2,
+): string[] {
+  const body = removePlaceholderLines(section);
+  const sentences = splitSentences(body);
+  const scored = sentences
+    .map((sentence, index) => ({
+      sentence,
+      index,
+      score: scoreSentence(sentence, index, Math.max(1, sentences.length), sectionTitle),
+    }))
+    .filter(
+      (item) =>
+        !looksLikeNoise(item.sentence) &&
+        item.sentence.length >= 14 &&
+        !/所占字节|表示范围/.test(item.sentence) &&
+        !/^(例|举例|例如|如[：:]|同样|因此|所以|但是|而|并且|而且)/.test(
+          item.sentence.trim(),
+        ) &&
+        !/[：:]$/.test(item.sentence.trim()) &&
+        !/\/\//.test(item.sentence) &&
+        !/格式[：:]/.test(item.sentence) &&
+        !/^[A-Za-z]或[a-z]/.test(item.sentence.trim()) &&
+        !(
+          /^[\d.]+[A-Za-z]?\s+/.test(item.sentence.trim()) &&
+          !/(转换|必须|不能|规则|范围|精度)/.test(item.sentence)
+        ) &&
+        (item.sentence.match(/[=;{}]/g) ?? []).length < 2 &&
+        !exclude.has(item.sentence.replace(/\s+/g, ' ').trim()),
+    )
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .sort((a, b) => a.index - b.index);
+  return scored.map((item) => item.sentence);
+}
+
 /**
  * 本地规则整理：完全不调用 AI。
- * - 有 Markdown 标题：标题作为节点标题，标题下第一句完整原句作为引用。
+ * - 有 Markdown / 数字编号标题：标题作为章节节点，正文关键句作为子节点。
  * - 无标题：中英文句子切分 + 章节权重 + 要点打分，抽取 8–16 个要点。
  */
 export function extractLocally(text: string): ExtractedNode[] {
@@ -1009,25 +1143,96 @@ export function extractLocally(text: string): ExtractedNode[] {
   const extracted: ExtractedNode[] = [];
 
   if (headings.length > 0) {
-    const first = headings[0];
-    const firstSectionEnd = headings[1]?.index ?? text.length;
-    const coreQuote = firstSentence(text.slice(first.end, firstSectionEnd)) ?? first.title;
-    extracted.push({
-      title: shortTitle(first.title),
-      quote: coreQuote,
-      question: questionFor(first.title, coreQuote),
-      level: 0,
+    // 按标题去重：PPT 每一页可能重复同一节标题，正文合并后统一挑知识点
+    const groups = new Map<string, { heading: Heading; bodies: string[] }>();
+    headings.forEach((heading, index) => {
+      const end = headings[index + 1]?.index ?? text.length;
+      const body = text.slice(heading.end, end);
+      const key = shortTitle(heading.title).replace(/\s+/g, '').toLowerCase();
+      const existing = groups.get(key);
+      if (existing) {
+        existing.bodies.push(body);
+      } else {
+        groups.set(key, { heading, bodies: [body] });
+      }
     });
 
-    for (let i = 1; i < headings.length && extracted.length < MAX_LOCAL_NODES; i += 1) {
-      const heading = headings[i];
-      const nextIndex = headings[i + 1]?.index ?? text.length;
-      const quote = firstSentence(text.slice(heading.end, nextIndex)) ?? heading.title;
-      extracted.push({
-        title: shortTitle(heading.title),
-        quote,
-        question: questionFor(heading.title, quote),
-        level: Math.min(3, Math.max(1, heading.level - first.level + 1)),
+    const GENERIC_HEADING =
+      /^(例|举例|注意|请思考|思考|练习|小结|总结|目录|添加标题|单击此处.*|.*示例$|.*应用.*|.*请思考.*)$/;
+    const RULE_CUE =
+      /(转换|精度|隐式|显式|必须|不能|规则|范围|赋值|区别|是指|指的是|定义为|分为|包括|注意)/g;
+
+    const sectionScore = (title: string, body: string): number => {
+      let score = Math.min(12, (body.match(RULE_CUE) ?? []).length * 2);
+      score += Math.min(6, body.replace(/\s+/g, '').length / 200);
+      if (/转换|类型/.test(title)) {
+        score += 4;
+      }
+      if (GENERIC_HEADING.test(shortTitle(title)) || /示例|应用|请思考|练习/.test(title)) {
+        score -= 30;
+      }
+      return score;
+    };
+
+    const allSections = [...groups.values()].sort(
+      (a, b) => a.heading.index - b.heading.index,
+    );
+    const root = allSections[0];
+    // 第一个标题之前的摘要 / 引言并进根节点，避免论文摘要被丢掉
+    const preamble = text.slice(0, headings[0]?.index ?? 0).trim();
+    if (root && preamble.length >= 20) {
+      root.bodies.unshift(preamble);
+    }
+    if (root) {
+      // 除根节点外，只保留信息量最高的几块，避免图谱一眼全是同级标题
+      const MAX_SECTIONS = 5;
+      const rest = allSections
+        .slice(1)
+        .map((section) => ({
+          section,
+          score: sectionScore(section.heading.title, section.bodies.join('\n')),
+        }))
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, MAX_SECTIONS)
+        .sort((a, b) => a.section.heading.index - b.section.heading.index)
+        .map((item) => item.section);
+
+      const pushSection = (
+        section: { heading: Heading; bodies: string[] },
+        level: number,
+      ) => {
+        const body = removePlaceholderLines(section.bodies.join('\n'));
+        const quote = pickSectionQuote(body, section.heading.title);
+        const sectionTitle = shortTitle(section.heading.title, 24);
+        extracted.push({
+          title: sectionTitle,
+          quote,
+          question: questionFor(sectionTitle, quote),
+          level,
+        });
+        const exclude = new Set([quote.replace(/\s+/g, ' ').trim()]);
+        // 根节点只作导航，不再挂知识点，保证展开前结构清爽
+        const points = level === 0 ? [] : sectionPoints(body, section.heading.title, exclude, 2);
+        for (const sentence of points) {
+          if (extracted.length >= MAX_LOCAL_NODES) {
+            break;
+          }
+          const title = titleFromSentence(sentence);
+          extracted.push({
+            title,
+            quote: sentence,
+            question: questionFor(title, sentence),
+            level: Math.min(3, level + 1),
+          });
+        }
+      };
+
+      pushSection(root, 0);
+      rest.forEach((section) => {
+        if (extracted.length < MAX_LOCAL_NODES) {
+          pushSection(section, 1);
+        }
       });
     }
   } else {

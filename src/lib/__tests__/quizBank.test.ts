@@ -16,7 +16,7 @@ function makeNode(
     quoteStart: -1,
     quoteEnd: -1,
     parentId: null,
-    level: 0,
+    level: 1,
     mastery: 0,
     goodStreak: 0,
     lastReviewedAt: null,
@@ -38,16 +38,21 @@ function makeDoc(text: string, nodes: KnowledgeNode[]): KnowledgeDoc {
   };
 }
 
-const BASE_DOC = makeDoc(
-  ['原文甲。', '原文乙。', '原文丙。', '原文丁。', '原文戊。'].join('\n'),
-  [
-    makeNode('a', '原文甲。'),
-    makeNode('b', '原文乙。'),
-    makeNode('c', '原文丙。'),
-    makeNode('d', '原文丁。'),
-    makeNode('e', '原文戊。'),
-  ],
-);
+const BASE_TEXT = [
+  '低精度值赋给高精度变量时会自动完成类型转换。',
+  '高精度值赋给低精度变量时必须进行强制类型转换。',
+  '字符串属于引用数据类型，分为 String 等。',
+  '布尔类型只有 true 和 false 两个取值。',
+  '整数类型的缺省类型是 int。',
+].join('\n');
+
+const BASE_DOC = makeDoc(BASE_TEXT, [
+  makeNode('a', '低精度值赋给高精度变量时会自动完成类型转换。'),
+  makeNode('b', '高精度值赋给低精度变量时必须进行强制类型转换。'),
+  makeNode('c', '字符串属于引用数据类型，分为 String 等。'),
+  makeNode('d', '布尔类型只有 true 和 false 两个取值。'),
+  makeNode('e', '整数类型的缺省类型是 int。'),
+]);
 
 function seededRandom(seed: number): () => number {
   return () => {
@@ -58,10 +63,13 @@ function seededRandom(seed: number): () => number {
 
 describe('buildChoiceQuestions', () => {
   it('按队列顺序出题，过滤不存在或无出处的节点并去重', () => {
-    const doc = makeDoc(BASE_DOC.text, [
-      makeNode('a', '原文甲。', { question: '甲的问题' }),
-      makeNode('b', '原文乙。'),
-      makeNode('c', '原文丙。', { title: '丙标题', question: '' }),
+    const doc = makeDoc(BASE_TEXT, [
+      makeNode('a', '低精度值赋给高精度变量时会自动完成类型转换。', { question: '甲的问题' }),
+      makeNode('b', '高精度值赋给低精度变量时必须进行强制类型转换。'),
+      makeNode('c', '字符串属于引用数据类型，分为 String 等。', {
+        title: '丙标题',
+        question: '',
+      }),
       makeNode('invalid', '材料中不存在。'),
     ]);
 
@@ -71,71 +79,95 @@ describe('buildChoiceQuestions', () => {
       () => 0.5,
     );
 
-    expect(questions.map((question) => question.nodeId)).toEqual(['c', 'a', 'b']);
+    expect(questions.map((question) => question.nodeId)).toEqual(['a', 'b']);
     expect(questions.map((question) => question.prompt)).toEqual([
-      '请复述「丙标题」的要点。',
-      '甲的问题',
-      '问题 b',
+      '根据原文，下面哪一项正确说明了「节点 a」的规则或结果？',
+      '根据原文，下面哪一项正确说明了「节点 b」的规则或结果？',
     ]);
+  });
+
+  it('中心主题（level 0）和章节标题不会作为答案或选项', () => {
+    const doc = makeDoc(BASE_TEXT, [
+      makeNode('root', '测试材料', { level: 0, title: '测试材料' }),
+      makeNode('a', '低精度值赋给高精度变量时会自动完成类型转换。'),
+      makeNode('b', '高精度值赋给低精度变量时必须进行强制类型转换。'),
+    ]);
+
+    const questions = buildChoiceQuestions(doc, ['root', 'a', 'b'], () => 0.5);
+    expect(questions.map((question) => question.nodeId)).not.toContain('root');
+    questions.forEach((question) => {
+      question.options.forEach((option) => {
+        expect(option.text).not.toBe('测试材料');
+      });
+    });
   });
 
   it('每题保留 2 至 4 个归一化后不同的选项，且只有一个正确项', () => {
     const doc = makeDoc(
-      ['正确 原文，甲。', '正确原文甲', '干扰项一。', '干扰项一', '干扰项二。', '干扰项三。', '干扰项四。'].join('\n'),
       [
-        makeNode('answer', '正确 原文，甲。', { quoteStart: 999, quoteEnd: 1000 }),
-        makeNode('same-answer', '正确原文甲'),
-        makeNode('distractor-a', '干扰项一。'),
-        makeNode('same-distractor', '干扰项一'),
-        makeNode('distractor-b', '干扰项二。'),
-        makeNode('distractor-c', '干扰项三。'),
-        makeNode('distractor-d', '干扰项四。'),
+        '正确的原文甲，说明类型转换的基本规则。',
+        '正确的原文甲说明类型转换的基本规则。',
+        '干扰项一，说明强制转换的条件。',
+        '干扰项一说明强制转换的条件。',
+        '干扰项二，说明精度损失的风险。',
+        '干扰项三，说明类型范围的限制。',
+        '干扰项四，说明赋值相容的条件。',
+      ].join('\n'),
+      [
+        makeNode('answer', '正确的原文甲，说明类型转换的基本规则。', {
+          quoteStart: 999,
+          quoteEnd: 1000,
+        }),
+        makeNode('same-answer', '正确的原文甲说明类型转换的基本规则。'),
+        makeNode('distractor-a', '干扰项一，说明强制转换的条件。'),
+        makeNode('same-distractor', '干扰项一说明强制转换的条件。'),
+        makeNode('distractor-b', '干扰项二，说明精度损失的风险。'),
+        makeNode('distractor-c', '干扰项三，说明类型范围的限制。'),
+        makeNode('distractor-d', '干扰项四，说明赋值相容的条件。'),
       ],
     );
 
     const [question] = buildChoiceQuestions(doc, ['answer'], () => 0.75);
     expect(question.options).toHaveLength(4);
-    expect(new Set(question.options.map((option) => normalizeQuoteText(option.text).text)).size).toBe(4);
+    expect(
+      new Set(question.options.map((option) => normalizeQuoteText(option.text).text)).size,
+    ).toBe(4);
 
     const correctOptions = question.options.filter(
       (option) => option.id === question.correctOptionId,
     );
     expect(correctOptions).toHaveLength(1);
-    expect(correctOptions[0]).toEqual({ id: 'answer', text: '正确 原文，甲。' });
+    expect(correctOptions[0]).toEqual({
+      id: 'answer',
+      text: '正确的原文甲，说明类型转换的基本规则。',
+    });
 
-    const twoSourceDoc = makeDoc('唯一甲。\n唯一乙。', [
-      makeNode('a', '唯一甲。'),
-      makeNode('b', '唯一乙。'),
-    ]);
+    const twoSourceDoc = makeDoc(
+      '唯一甲句子，说明类型转换规则。\n唯一乙句子，说明赋值相容条件。',
+      [
+        makeNode('a', '唯一甲句子，说明类型转换规则。'),
+        makeNode('b', '唯一乙句子，说明赋值相容条件。'),
+      ],
+    );
     const [twoOptionQuestion] = buildChoiceQuestions(twoSourceDoc, ['a'], () => 0);
     expect(twoOptionQuestion.options).toHaveLength(2);
   });
 
-  it('干扰项按关键句相似度优先，而不是按节点层级', () => {
-    const doc = makeDoc(
-      [
-        '原文甲。',
-        '原文乙。',
-        '原文丙，补充一些背景信息。',
-        '原文丁，再增加更多更多更多解释内容。',
-        '原文戊，稍微补充。',
-      ].join('\n'),
-      [
-        makeNode('target', '原文甲。', { parentId: 'parent', level: 1 }),
-        makeNode('other', '原文乙。', { parentId: 'other-parent', level: 4 }),
-        makeNode('same-level', '原文丙，补充一些背景信息。', { parentId: 'other-parent', level: 1 }),
-        makeNode('sibling-b', '原文丁，再增加更多更多更多解释内容。', { parentId: 'parent', level: 3 }),
-        makeNode('sibling-a', '原文戊，稍微补充。', { parentId: 'parent', level: 2 }),
-      ],
+  it('只给带规则信号的节点出题，题目数量有上限', () => {
+    const nodes = Array.from({ length: 12 }, (_, index) =>
+      makeNode(`n${index}`, `第 ${index} 条规则说明类型转换的适用条件。`),
     );
+    const doc = makeDoc(
+      nodes.map((node) => node.quote).join('\n'),
+      nodes,
+    );
+    const questions = buildChoiceQuestions(doc, nodes.map((node) => node.id), () => 0.3);
+    expect(questions.length).toBeLessThanOrEqual(8);
 
-    const [question] = buildChoiceQuestions(doc, ['target'], () => 0.999999);
-    expect(question.options.map((option) => option.id)).toEqual([
-      'target',
-      'other',
-      'sibling-a',
-      'same-level',
+    const looseDoc = makeDoc('这是一段没有规则信号的普通描述文字。', [
+      makeNode('loose', '这是一段没有规则信号的普通描述文字。'),
     ]);
+    expect(buildChoiceQuestions(looseDoc, ['loose'], () => 0)).toEqual([]);
   });
 
   it('空文档、无可溯源原文或全局不足两条不同原文时返回空数组', () => {
@@ -151,14 +183,17 @@ describe('buildChoiceQuestions', () => {
     expect(buildChoiceQuestions(oneDistinctText, ['a', 'b'], () => 0)).toEqual([]);
   });
 
-  it('固定随机序列可重复，Fisher-Yates 洗牌不固定正确项位置', () => {
+  it('固定随机序列可重复，Fisher-Yates 洗牌会改变正确项位置', () => {
     const first = buildChoiceQuestions(BASE_DOC, ['a', 'b'], seededRandom(42));
     const second = buildChoiceQuestions(BASE_DOC, ['a', 'b'], seededRandom(42));
     expect(first).toEqual(second);
 
     const [low] = buildChoiceQuestions(BASE_DOC, ['a'], () => 0);
     const [high] = buildChoiceQuestions(BASE_DOC, ['a'], () => 0.999999);
-    expect(low.options.map((option) => option.id)).toEqual(['b', 'c', 'd', 'a']);
-    expect(high.options.map((option) => option.id)).toEqual(['a', 'b', 'c', 'd']);
+    const lowIndex = low.options.findIndex((option) => option.id === low.correctOptionId);
+    const highIndex = high.options.findIndex((option) => option.id === high.correctOptionId);
+    expect(lowIndex).toBeGreaterThanOrEqual(0);
+    expect(highIndex).toBeGreaterThanOrEqual(0);
+    expect(lowIndex).not.toBe(highIndex);
   });
 });

@@ -55,7 +55,7 @@ describe('PPTX 文本提取', () => {
   it('按上限截断并标记 truncated', async () => {
     const file = makePptx({ 'slide1.xml': slideXml(['一二三四五六七八九十']) });
     const result = await extractFileText(file, 4);
-    expect(result.text).toBe('一二三四');
+    expect(result.text).toBe('## 一');
     expect(result.chars).toBe(10);
     expect(result.truncated).toBe(true);
   });

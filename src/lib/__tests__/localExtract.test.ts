@@ -210,6 +210,33 @@ char型变量数据与数值类数据之间的转换`;
     expect(titles.some((t) => t.includes('char'))).toBe(true);
   });
 
+  it('PPT 页面标题按章节聚合，知识点挂在章节下', () => {
+    const PPT = `## 2.1 Java语法基础
+## 2.1.3 数据类型
+## 基本数据类型
+基本数据类型是由一种简单数据组成的数据类型，其数据是不可分解的。
+## 2.1.3 不同类型数据之间转换
+当将低精度的值赋给高精度的变量时，系统自动完成数据类型的转换。
+当将高级别的值赋给低级别的变量时，必须进行强制类型转换。`;
+    const extracted = extractLocally(PPT);
+    expect(extracted[0].level).toBe(0);
+    expect(extracted.filter((node) => node.level === 1).length).toBeLessThanOrEqual(5);
+    expect(extracted.some((node) => node.level === 2 && /转换/.test(node.quote))).toBe(true);
+
+    const nodes = toKnowledgeNodes(extracted, PPT, 1000);
+    const doc = {
+      id: 'ppt',
+      title: 'Java 数据类型',
+      text: PPT,
+      origin: 'local',
+      createdAt: 0,
+      updatedAt: 0,
+      nodes,
+      relations: [],
+    } as KnowledgeDoc;
+    expect(buildLocalAssistantReply(doc, '总结一下这章的重点') ?? '').toContain('转换');
+  });
+
   it('本地讲解包含定义、要点与复习提示', () => {
     const nodes = toKnowledgeNodes(
       [{ title: '强制类型转换', quote: '必须强制转换后赋值，否则会丢失精度。', question: '？', level: 0 }],
