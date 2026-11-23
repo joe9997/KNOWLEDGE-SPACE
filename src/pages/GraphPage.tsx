@@ -1,0 +1,185 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Info, BookOpen, ListChecks, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { KnowledgeGraph } from '../components/graph/KnowledgeGraph';
+import { LearningPrefsModal } from '../components/graph/LearningPrefsModal';
+import { SourcePanel } from '../components/source/SourcePanel';
+import { TimeTravel } from '../components/TimeTravel';
+import { DEMO_NOTICE } from '../data/demo';
+import { countRelations, downloadPdf } from '../lib/exportMarkdown';
+import { isDue } from '../lib/review';
+import type { AppView, KnowledgeDoc } from '../lib/types';
+import { useApp } from '../state/AppStore';
+
+interface GraphPageProps {
+  doc: KnowledgeDoc | null;
+  onStartQuiz: (nodeIds: string[]) => void;
+  onOpenQuizBank: (nodeIds: string[]) => void;
+  onNavigate: (view: AppView) => void;
+  /** 只针对当前材料的 AI 助手（自动总结 + 出题） */
+  onOpenAssistant: () => void;
+}
+
+const ORIGIN_LABEL: Record<KnowledgeDoc['origin'], string> = {
+  demo: '体验材料',
+  local: '本地规则整理 · 不调用 AI',
+  ai: 'AI 整理',
+};
+
+export function GraphPage({
+  doc,
+  onStartQuiz,
+  onOpenQuizBank,
+  onNavigate,
+  onOpenAssistant,
+}: GraphPageProps) {
+  const { now, offsetDays, activeDocId, learningPrefs, updateLearningPrefs } = useApp();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [prefsOpen, setPrefsOpen] = useState(false);
+
+  useEffect(() => {
+    setSelectedId(null);
+  }, [activeDocId]);
+
+  const selectedNode = useMemo(() => {
+    if (!doc || !selectedId) {
+      return null;
+    }
+    return doc.nodes.find((node) => node.id === selectedId) ?? null;
+  }, [doc, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !document.querySelector('.modal-backdrop')) {
+        setSelectedId(null);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selectedId]);
+
+  if (!doc) {
+    return (
+      <div className="page">
+        <div className="api-page">
+          <div className="api-panel glass-panel" style={{ textAlign: 'center' }}>
+            <p className="eyebrow">NO MATERIAL YET</p>
+            <h1 style={{ fontFamily: 'var(--font-serif)', margin: '12px 0' }}>
+              还没有可探索的材料
+            </h1>
+            <p style={{ color: 'var(--text-soft)', fontSize: 13 }}>
+              回到首页，粘贴一段讲义或体验示例空间。
+            </p>
+            <button
+              type="button"
+              className="glass-button"
+              style={{ marginTop: 22 }}
+              onClick={() => onNavigate('home')}
+            >
+              回到首页
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const traceable = doc.nodes.filter((node) => node.quoteStart >= 0).length;
+  const dueCount = doc.nodes.filter((node) => isDue(node.nextReviewAt, now)).length;
+
+  return (
+    <div className="graph-page">
+      <header className="graph-head">
+        <div className="graph-head__title">
+          <div className="graph-head__meta">
+            <span className="origin-badge">
+              <BookOpen size={10} />
+              {ORIGIN_LABEL[doc.origin]}
+            </span>
+            {doc.origin === 'demo' && (
+              <>
+                <span className="demo-notice">
+                  <Info size={11} />
+                  {DEMO_NOTICE}
+                </span>
+              </>
+            )}
+            <span>{dueCount} 个节点今天到期</span>
+          </div>
+          <h2>{doc.title}</h2>
+          {doc.subtitle && <p className="graph-head__subtitle">{doc.subtitle}</p>}
+          {doc.summary && <p className="graph-head__summary">{doc.summary}</p>}
+        </div>
+
+        <div className="graph-head__right">
+          <div className="graph-stats" aria-label="文档统计">
+            <div className="stat">
+              <strong className="stat__value">{doc.nodes.length}</strong>
+              <span className="stat__label">概念</span>
+            </div>
+            <div className="stat">
+              <strong className="stat__value">{countRelations(doc)}</strong>
+              <span className="stat__label">关联</span>
+            </div>
+            <div className="stat">
+              <strong className="stat__value">
+                {traceable}/{doc.nodes.length}
+              </strong>
+              <span className="stat__label">可溯源</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="glass-button graph-quiz-button"
+            onClick={() => onOpenQuizBank(doc.nodes.map((node) => node.id))}
+          >
+            <ListChecks size={15} />
+            题库
+          </button>
+          <button
+            type="button"
+            className="glass-button graph-quiz-button graph-prefs-button"
+            onClick={() => setPrefsOpen(true)}
+          >
+            <SlidersHorizontal size={15} />
+            个性化
+          </button>
+          <button
+            type="button"
+            className="glass-button graph-quiz-button graph-assistant-button"
+            onClick={onOpenAssistant}
+          >
+            <Sparkles size={15} />
+            AI 助手
+          </button>
+          <TimeTravel compact />
+        </div>
+      </header>
+
+      <div className="graph-body">
+        <KnowledgeGraph
+          doc={doc}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          onExportPdf={() => downloadPdf(doc, now)}
+          offsetDays={offsetDays}
+          paletteTheme={learningPrefs.palette}
+          view={learningPrefs.graphView}
+          onViewChange={(graphView) => updateLearningPrefs({ graphView })}
+        />
+        {selectedNode && (
+          <SourcePanel
+            doc={doc}
+            node={selectedNode}
+            onClose={() => setSelectedId(null)}
+            onQuiz={() => onStartQuiz([selectedNode.id])}
+          />
+        )}
+      </div>
+
+      <LearningPrefsModal open={prefsOpen} onClose={() => setPrefsOpen(false)} />
+    </div>
+  );
+}

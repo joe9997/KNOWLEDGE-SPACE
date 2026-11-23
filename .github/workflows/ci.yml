@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Type check + build
+        run: npm run build
+
+      - name: Build standalone HTML
+        run: npm run build:single
+
+      - name: Check KNOWLEDGE-SPACE.html 是否为最新
+        run: |
+          if ! git diff --quiet -- KNOWLEDGE-SPACE.html; then
+            echo "::warning file=KNOWLEDGE-SPACE.html::与当前源码不一致，请本地执行 npm run build:single 后一起提交"
+          fi
+
+      - name: Upload standalone HTML
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-html
+          path: KNOWLEDGE-SPACE.html
+          retention-days: 30
+
+      - name: Upload dist
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7

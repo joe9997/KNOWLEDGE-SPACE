@@ -1,0 +1,37 @@
+# 代码所有者 —— PR 会自动请求这些人 review
+# 用户名必须是真实 GitHub 账号，否则本文件不生效。6 人按分工填好后取消注释。
+#
+*                                   @joe9997
+
+# 知识图谱
+# /src/components/graph/            @member-graph
+# /src/pages/GraphPage.tsx          @member-graph
+#
+# 录入与溯源
+# /src/components/intake/           @member-intake
+# /src/components/source/           @member-intake
+# /src/lib/quotes.ts                @member-intake
+#
+# 自测与复习
+# /src/components/quiz/             @member-quiz
+# /src/components/TimeTravel.tsx    @member-quiz
+# /src/lib/review.ts                @member-quiz
+#
+# 视觉与动效
+# /src/components/background/       @member-visual
+# /src/components/ui/               @member-visual
+# /src/theme/                       @member-visual
+# /src/styles/                      @member-visual
+#
+# 模型与数据
+# /src/lib/llm.ts                   @member-data
+# /src/lib/localExtract.ts          @member-data
+# /src/lib/storage.ts               @member-data
+
+# 公共文件：队长 + 至少一位模块负责人都要看
+/src/lib/types.ts       @joe9997
+/src/App.tsx            @joe9997
+/src/main.tsx           @joe9997
+/src/styles/app.css     @joe9997
+/package.json           @joe9997
+/vite.config.ts         @joe9997

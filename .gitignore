@@ -1,0 +1,50 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 旧的本地副本，不随仓库发布
+projec1/
+
+# 构建产物
+dist/
+dist-single/
+dist-ssr/
+*.local
+*.tsbuildinfo
+
+# 单文件离线版是会提交的（KNOWLEDGE-SPACE.html），只忽略它的中间目录
+
+# 编辑器导出的分享包（Trae / 其他）
+.trae-html-share-packages/
+*.zip
+
+# 截图与验收产物
+.screenshots/
+.tmp-shots/
+coverage/
+test-results/
+playwright-report/
+
+# 本地环境变量 / 密钥（BYOK 的 key 一律不进仓库）
+.env
+.env.*
+!.env.example
+
+# 服务端本地数据库（用户数据，不进仓库）
+data/
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# 临时文件
+*.tmp
+*.log
+.tmp-deploy/
+
+# Vercel 项目关联（本地配置，不进仓库）
+.vercel
