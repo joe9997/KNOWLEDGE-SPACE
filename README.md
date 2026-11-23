@@ -6,6 +6,8 @@
 
 本项目是 React 19 + TypeScript + Vite 前端，加一个可选的 Node 后端（`server/`，Express）。后端负责账号、按用户隔离的数据存储，并托管模型 Key、代理 AI 调用；不启动后端时，前端仍可独立运行，文档与复习进度照旧保存在浏览器本地。API Key 在服务端模式下只存在于 `.env`，在自带 Key 模式下只存在于当前标签页的 `sessionStorage`。
 
+![回源首页：让知识，有迹可循](docs/screenshots/home.jpg)
+
 ## 快速开始
 
 不想本地安装？直接打开[在线体验](https://huiyuan-knowledge-space.vercel.app/)即可。
