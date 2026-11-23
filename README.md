@@ -106,9 +106,6 @@ git push -u origin feat/your-thing
 
 GitHub 上开 PR → CI 绿 → 1 人 Approve → Squash merge（自动删分支）。
 
-完整的约定（提交规范、按目录分工、公共文件归属、冲突与锁文件处理、评审清单）
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。**首次加入请先读它。**
-
 | 自动化 | 位置 |
 | --- | --- |
 | CI：`npm test` + `npm run build` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |

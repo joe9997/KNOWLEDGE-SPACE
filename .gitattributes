@@ -17,7 +17,7 @@
 *.cmd   text eol=crlf
 *.ps1   text eol=crlf
 
-# 锁文件不参与 diff 噪音（冲突处理见 CONTRIBUTING）
+# 锁文件不参与 diff 噪音
 package-lock.json -diff
 
 # 二进制
