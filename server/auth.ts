@@ -13,8 +13,8 @@ import type {
   RegistrationResponseJSON,
   WebAuthnCredential,
 } from '@simplewebauthn/server';
-import { challengeFromResponse, saveChallenge, takeChallenge } from './challenges.ts';
-import { getSupabase, isSupabaseConfigured } from './supabase.ts';
+import { challengeFromResponse, saveChallenge, takeChallenge } from './challenges.js';
+import { getSupabase, isSupabaseConfigured } from './supabase.js';
 
 export interface PasskeyRecord {
   credentialId: string;

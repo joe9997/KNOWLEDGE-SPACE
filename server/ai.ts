@@ -1,6 +1,6 @@
-import type { ExtractedNode } from '../src/lib/types';
-import { PROMPT, SYSTEM_PROMPT, parseExtraction } from '../src/lib/extractCore';
-import type { AiConfig } from './config';
+import type { ExtractedNode } from '../src/lib/types.js';
+import { PROMPT, SYSTEM_PROMPT, parseExtraction } from '../src/lib/extractCore.js';
+import type { AiConfig } from './config.js';
 
 const TEST_TIMEOUT_MS = 20_000;
 

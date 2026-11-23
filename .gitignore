@@ -48,3 +48,6 @@ Thumbs.db
 
 # Vercel 项目关联（本地配置，不进仓库）
 .vercel
+
+.vercel
+.env*

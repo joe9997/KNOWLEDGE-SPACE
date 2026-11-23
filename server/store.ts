@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getSupabase, isSupabaseConfigured } from './supabase.ts';
+import { getSupabase, isSupabaseConfigured } from './supabase.js';
 
 export interface StoredNode {
   id: string;

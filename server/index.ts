@@ -3,10 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import { readServerConfig } from './config.ts';
-import type { AiConfig } from './config.ts';
-import { chat, chatStream, extractChunk, testConnection } from './ai.ts';
-import type { ChatContent, ChatMessage } from './ai.ts';
+import { readServerConfig } from './config.js';
+import type { AiConfig } from './config.js';
+import { chat, chatStream, extractChunk, testConnection } from './ai.js';
+import type { ChatContent, ChatMessage } from './ai.js';
 import {
   changePassword,
   deleteSession,
@@ -20,11 +20,11 @@ import {
   updateProfile,
   verifyPasskeyAuthentication,
   verifyPasskeyRegistration,
-} from './auth.ts';
-import type { UserRecord } from './auth.ts';
-import { rateLimit } from './ratelimit.ts';
-import { readSnapshot, sanitizeDocs, validateDocsPayload, writeSnapshot } from './store.ts';
-import { isSupabaseConfigured } from './supabase.ts';
+} from './auth.js';
+import type { UserRecord } from './auth.js';
+import { rateLimit } from './ratelimit.js';
+import { readSnapshot, sanitizeDocs, validateDocsPayload, writeSnapshot } from './store.js';
+import { isSupabaseConfigured } from './supabase.js';
 
 const MAX_CHUNK_CHARS = 4000;
 const MAX_CHAT_CONTEXT = 8000;

@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
-import { getSupabase } from './supabase.ts';
+import { getSupabase } from './supabase.js';
 
 /**
  * WebAuthn challenge 存储。
