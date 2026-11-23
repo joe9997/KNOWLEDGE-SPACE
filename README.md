@@ -1,10 +1,14 @@
 # 回源 · KNOWLEDGE SPACE
 
+**在线体验：[https://huiyuan-knowledge-space.vercel.app/](https://huiyuan-knowledge-space.vercel.app/)**（无需安装，打开即用）
+
 把一段讲义变成一片彼此连接的知识星空。每个节点都能回到原文那一句，按掌握程度自测，并按间隔复习只推今天该记的内容。
 
 本项目是 React 19 + TypeScript + Vite 前端，加一个可选的 Node 后端（`server/`，Express）。后端负责账号、按用户隔离的数据存储，并托管模型 Key、代理 AI 调用；不启动后端时，前端仍可独立运行，文档与复习进度照旧保存在浏览器本地。API Key 在服务端模式下只存在于 `.env`，在自带 Key 模式下只存在于当前标签页的 `sessionStorage`。
 
 ## 快速开始
+
+不想本地安装？直接打开[在线体验](https://huiyuan-knowledge-space.vercel.app/)即可。
 
 需要 Node.js 20 及以上。
 
